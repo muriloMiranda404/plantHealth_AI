@@ -15,9 +15,15 @@ status_pub = table.getStringTopic("PlantStatus").publish()
 disease_detected_pub = table.getBooleanTopic("DiseaseDetected").publish()
 conf_pub = table.getDoubleTopic("Confidence").publish()
 
-# Tópicos do Arduino (Sensores)
-umidade_pub = table.getDoubleTopic("UmidadeSolo").publish()
-luz_pub = table.getDoubleTopic("LuzAmbiente").publish()
+# Tópicos do Arduino (Sensores Expandidos)
+umidade1_pub = table.getDoubleTopic("Umid1").publish()
+umidade2_pub = table.getDoubleTopic("Umid2").publish()
+luz1_pub = table.getDoubleTopic("Luz1").publish()
+luz2_pub = table.getDoubleTopic("Luz2").publish()
+temp1_pub = table.getDoubleTopic("Temp1").publish()
+temp2_pub = table.getDoubleTopic("Temp2").publish()
+ph1_pub = table.getDoubleTopic("PH1").publish()
+ph2_pub = table.getDoubleTopic("PH2").publish()
 
 # --- CONFIGURAÇÃO SERIAL (ARDUINO) ---
 # Substitua '/dev/ttyACM0' ou '/dev/ttyUSB0' pela porta correta na sua Raspberry
@@ -68,12 +74,16 @@ while True:
     if ser and ser.in_waiting > 0:
         try:
             line = ser.readline().decode('utf-8').rstrip()
-            # Espera um formato JSON do Arduino: {"umidade": 45, "luz": 80}
+            # Mapeamento do JSON do Arduino para os publicadores NT4
             data = json.loads(line)
-            if "umidade" in data:
-                umidade_pub.set(float(data["umidade"]))
-            if "luz" in data:
-                luz_pub.set(float(data["luz"]))
+            if "u1" in data: umidade1_pub.set(float(data["u1"]))
+            if "u2" in data: umidade2_pub.set(float(data["u2"]))
+            if "l1" in data: luz1_pub.set(float(data["l1"]))
+            if "l2" in data: luz2_pub.set(float(data["l2"]))
+            if "t1" in data: temp1_pub.set(float(data["t1"]))
+            if "t2" in data: temp2_pub.set(float(data["t2"]))
+            if "p1" in data: ph1_pub.set(float(data["p1"]))
+            if "p2" in data: ph2_pub.set(float(data["p2"]))
         except Exception as e:
             print(f"Erro ao ler serial: {e}")
 
