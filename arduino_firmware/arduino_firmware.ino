@@ -15,11 +15,28 @@ const int S_TEMP_2    = A5;
 const int S_PH_1      = A6;
 const int S_PH_2      = A7;
 
+// Atuadores
+const int PIN_BOMBA   = 8; // Pino digital para o relé da bomba
+
 void setup() {
   Serial.begin(9600);
+  pinMode(PIN_BOMBA, OUTPUT);
+  digitalWrite(PIN_BOMBA, LOW); // Inicia desligada
 }
 
 void loop() {
+  // 0. Verificar Comandos Serial (Vindos da Raspberry)
+  if (Serial.available() > 0) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    
+    if (cmd == "B1") {
+      digitalWrite(PIN_BOMBA, HIGH);
+    } else if (cmd == "B0") {
+      digitalWrite(PIN_BOMBA, LOW);
+    }
+  }
+
   // 1. Leitura dos sensores
   int valU1 = analogRead(S_UMIDADE_1);
   int valU2 = analogRead(S_UMIDADE_2);

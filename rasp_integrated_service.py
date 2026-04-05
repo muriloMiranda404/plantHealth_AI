@@ -44,6 +44,38 @@ except Exception as e:
 
 cap = cv2.VideoCapture(0)
 
+# --- LISTENERS PARA COMANDOS DO DART ---
+def on_pump_change(v):
+    if ser:
+        # Envia 'B1' para ligar bomba, 'B0' para desligar via Serial
+        cmd = "B1\n" if v else "B0\n"
+        ser.write(cmd.encode())
+        print(f"Comando Bomba: {v}")
+
+def on_ph_offset_change(v):
+    print(f"Novo Offset pH: {v}")
+    # Aqui você pode salvar o valor para usar nos cálculos de pH
+
+# Assinar tópicos de comando (Input do Dart)
+# No Python (ntcore), usamos Listeners vinculados à instância do NetworkTables
+def pump_listener(event):
+    on_pump_change(event.data.value.getBoolean())
+
+def ph_listener(event):
+    on_ph_offset_change(event.data.value.getFloat())
+
+inst.addListener(
+    table.getEntry("CmdPump"), 
+    ntcore.EventFlags.VALUE_ALL, 
+    pump_listener
+)
+
+inst.addListener(
+    table.getEntry("PH_Offset"), 
+    ntcore.EventFlags.VALUE_ALL, 
+    ph_listener
+)
+
 print("Sistema Integrado (Raspberry + Arduino + NT4) Iniciado...")
 
 while True:
