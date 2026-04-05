@@ -33,16 +33,22 @@ class GlassDashboard extends StatefulWidget {
 
 class _GlassDashboardState extends State<GlassDashboard> {
   late NT4Client client;
-  String status = "Desconectado";
+  
+  // Dados da IA
+  String status = "Iniciando...";
   bool hasDisease = false;
   double confidence = 0.0;
+  
+  // Dados do Arduino
+  double umidade = 0.0;
+  double luz = 0.0;
+  
   bool isConnected = false;
 
   @override
   void initState() {
     super.initState();
-    // IP do servidor Python. Se rodar no Windows para Windows, usar 127.0.0.1.
-    // Se rodar no Android para Windows, usar o IP do seu PC (ex: 192.168.1.5).
+    // IMPORTANTE: Mude para o IP da sua Raspberry Pi na rede Wi-Fi!
     client = NT4Client(
       serverBaseAddress: '127.0.0.1', 
       onConnect: () => setState(() => isConnected = true),
@@ -51,17 +57,23 @@ class _GlassDashboardState extends State<GlassDashboard> {
 
     const options = NT4SubscriptionOptions();
     
-    // Subscrições com tratamento de erro e reconexão automática
+    // IA
     client.subscribe('/SmartDashboard/PlantStatus', options).stream().listen((val) {
       if (val != null) setState(() => status = val.toString());
     });
-
     client.subscribe('/SmartDashboard/DiseaseDetected', options).stream().listen((val) {
       if (val != null) setState(() => hasDisease = val as bool);
     });
-
     client.subscribe('/SmartDashboard/Confidence', options).stream().listen((val) {
       if (val != null) setState(() => confidence = (val as num).toDouble());
+    });
+
+    // Arduino (Novos tópicos)
+    client.subscribe('/SmartDashboard/UmidadeSolo', options).stream().listen((val) {
+      if (val != null) setState(() => umidade = (val as num).toDouble());
+    });
+    client.subscribe('/SmartDashboard/LuzAmbiente', options).stream().listen((val) {
+      if (val != null) setState(() => luz = (val as num).toDouble());
     });
   }
 
@@ -70,7 +82,6 @@ class _GlassDashboardState extends State<GlassDashboard> {
     return Scaffold(
       body: Stack(
         children: [
-          // Fundo com Gradiente Animado
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -82,33 +93,30 @@ class _GlassDashboardState extends State<GlassDashboard> {
               ),
             ),
           ),
-          // Círculos de brilho para efeito visual
-          Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: (hasDisease ? Colors.red : Colors.greenAccent).withOpacity(0.2),
-              ),
-            ),
-          ),
-          
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 20),
                   _buildHeader(),
-                  const SizedBox(height: 40),
-                  _buildMainStatus(),
                   const SizedBox(height: 30),
-                  _buildMetrics(),
-                  const Spacer(),
+                  _buildMainStatus(),
+                  const SizedBox(height: 20),
+                  // Grade de métricas (IA + Arduino)
+                  Expanded(
+                    child: GridView.count(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 15,
+                      crossAxisSpacing: 15,
+                      children: [
+                        _buildGlassCard("Confiança", "${(confidence * 100).toInt()}%", Icons.analytics),
+                        _buildGlassCard("Umidade", "${umidade.toInt()}%", Icons.water_drop),
+                        _buildGlassCard("Luz", "${luz.toInt()}%", Icons.wb_sunny),
+                        _buildGlassCard("Status", hasDisease ? "Alerta" : "OK", Icons.health_and_safety),
+                      ],
+                    ),
+                  ),
                   _buildConnectionBadge(),
                   const SizedBox(height: 20),
                 ],
@@ -124,99 +132,40 @@ class _GlassDashboardState extends State<GlassDashboard> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
+        const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              "PlantGuard AI",
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: Colors.white.withOpacity(0.9),
-              ),
-            ),
-            Text(
-              "Monitoramento em tempo real",
-              style: TextStyle(color: Colors.white.withOpacity(0.5)),
-            ),
+            Text("PlantGuard AI", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+            Text("Raspberry Pi + Arduino", style: TextStyle(color: Colors.white54, fontSize: 12)),
           ],
         ),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: Icon(
-            hasDisease ? Icons.warning_amber_rounded : Icons.eco_rounded,
-            color: hasDisease ? Colors.orangeAccent : Colors.greenAccent,
-            size: 30,
-          ),
-        ),
+        Icon(hasDisease ? Icons.warning_amber : Icons.eco, color: hasDisease ? Colors.orange : Colors.greenAccent, size: 32),
       ],
     );
   }
 
   Widget _buildMainStatus() {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(30),
+      borderRadius: BorderRadius.circular(25),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(40),
+          padding: const EdgeInsets.all(30),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
+            borderRadius: BorderRadius.circular(25),
+            border: Border.all(color: Colors.white10),
           ),
           child: Column(
             children: [
-              Text(
-                hasDisease ? "DOENÇA DETECTADA" : "SISTEMA OPERANTE",
-                style: TextStyle(
-                  letterSpacing: 2,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: hasDisease ? Colors.redAccent : Colors.greenAccent,
-                ),
-              ),
-              const SizedBox(height: 15),
-              Text(
-                status.toUpperCase(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                ),
-              ),
+              Text(status.toUpperCase(), textAlign: TextAlign.center, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.white)),
+              const SizedBox(height: 5),
+              Text(hasDisease ? "FOI DETECTADO UM PROBLEMA" : "PLANTA SAUDÁVEL", style: TextStyle(color: hasDisease ? Colors.redAccent : Colors.greenAccent, letterSpacing: 1.2, fontSize: 10, fontWeight: FontWeight.bold)),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildMetrics() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildGlassCard(
-            "Confiança",
-            "${(confidence * 100).toStringAsFixed(1)}%",
-            Icons.analytics_outlined,
-          ),
-        ),
-        const SizedBox(width: 15),
-        Expanded(
-          child: _buildGlassCard(
-            "Saúde",
-            hasDisease ? "Alerta" : "Excelente",
-            Icons.favorite_border_rounded,
-          ),
-        ),
-      ],
     );
   }
 
@@ -230,15 +179,15 @@ class _GlassDashboardState extends State<GlassDashboard> {
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
+            border: Border.all(color: Colors.white10),
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: Colors.white.withOpacity(0.5), size: 20),
-              const SizedBox(height: 15),
-              Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              Text(title, style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12)),
+              Icon(icon, color: Colors.greenAccent, size: 24),
+              const SizedBox(height: 10),
+              Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text(title, style: const TextStyle(color: Colors.white54, fontSize: 10)),
             ],
           ),
         ),
@@ -247,38 +196,16 @@ class _GlassDashboardState extends State<GlassDashboard> {
   }
 
   Widget _buildConnectionBadge() {
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isConnected ? Colors.greenAccent.withOpacity(0.1) : Colors.redAccent.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: (isConnected ? Colors.greenAccent : Colors.redAccent).withOpacity(0.3)
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isConnected ? Colors.greenAccent : Colors.redAccent,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              isConnected ? "LINK ATIVO: PYTHON SERVER" : "ERRO DE CONEXÃO",
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: isConnected ? Colors.greenAccent : Colors.redAccent,
-              ),
-            ),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(radius: 4, backgroundColor: isConnected ? Colors.greenAccent : Colors.redAccent),
+          const SizedBox(width: 8),
+          Text(isConnected ? "SISTEMA ONLINE" : "OFFLINE", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }
