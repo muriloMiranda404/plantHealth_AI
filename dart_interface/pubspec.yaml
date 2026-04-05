@@ -1,0 +1,10 @@
+name: plant_dart_client
+description: Cliente Dart para receber dados do YOLO via NetworkTables
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  nt4: ^1.0.0

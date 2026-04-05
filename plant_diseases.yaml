@@ -1,0 +1,10 @@
+# Configuração do seu dataset (imagens que você adicionou)
+path: ./dataset 
+train: images/train
+val: images/val
+
+names:
+  0: folha_seca
+  1: planta_bicolor
+  2: mancha
+  3: saudavel
