@@ -3,16 +3,15 @@ import 'dart:io';
 
 void main() async {
   print('--- Iniciando Cliente Dart (NT4) ---');
-  
+
   // Conectar ao servidor Python (que está rodando na mesma máquina)
   final client = NT4Client(serverBaseAddress: '127.0.0.1');
-  
+
   // Assinar os tópicos (Sintaxe para nt4 1.3.3+)
   // A versão 1.3.3 exige NT4SubscriptionOptions como segundo argumento posicional.
-  const options = NT4SubscriptionOptions(); 
-  
+  const options = NT4SubscriptionOptions();
+
   final statusSub = client.subscribe('/SmartDashboard/PlantStatus', options);
-  final diseaseSub = client.subscribe('/SmartDashboard/DiseaseDetected', options);
   final confSub = client.subscribe('/SmartDashboard/Confidence', options);
 
   print('Aguardando dados do Python...');

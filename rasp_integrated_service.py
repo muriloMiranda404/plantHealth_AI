@@ -45,6 +45,9 @@ except Exception as e:
 cap = cv2.VideoCapture(0)
 
 # --- LISTENERS PARA COMANDOS DO DART ---
+PLANT_CLASSES = [0, 1, 2] # 0: folha_seca, 1: planta_bicolor, 2: mancha
+HEALTHY_CLASS = 3        # 3: saudavel
+
 def on_pump_change(v):
     if ser:
         # Envia 'B1' para ligar bomba, 'B0' para desligar via Serial
@@ -83,24 +86,37 @@ while True:
     ret, frame = cap.read()
     if ret:
         results = model.predict(frame, conf=0.5, imgsz=320, verbose=False)
-        detected = []
+        detected_diseases = []
+        is_healthy = True
         max_conf = 0.0
+        
         for r in results:
             for box in r.boxes:
                 cls = int(box.cls[0])
+                
+                # FILTRAR: Ignorar tudo que não for folha doente ou saudável
+                if cls not in PLANT_CLASSES and cls != HEALTHY_CLASS:
+                    continue
+                    
                 label = model.names[cls]
                 conf = float(box.conf[0])
-                detected.append(label)
-                if conf > max_conf: max_conf = conf
+                
+                if cls in PLANT_CLASSES:
+                    detected_diseases.append(label)
+                    is_healthy = False
+                
+                if conf > max_conf:
+                    max_conf = conf
 
-        if detected:
-            status_pub.set(", ".join(detected))
+        if not is_healthy and detected_diseases:
+            status_msg = ", ".join(set(detected_diseases))
+            status_pub.set(status_msg)
             disease_detected_pub.set(True)
             conf_pub.set(max_conf)
         else:
             status_pub.set("Saudável")
             disease_detected_pub.set(False)
-            conf_pub.set(0.0)
+            conf_pub.set(max_conf if max_conf > 0 else 0.0)
 
     # 2. Processar Dados do Arduino (Serial)
     if ser and ser.in_waiting > 0:
