@@ -1,4 +1,3 @@
-# Configuração do seu dataset (imagens que você adicionou)
 path: ./dataset 
 train: images/train
 val: images/val

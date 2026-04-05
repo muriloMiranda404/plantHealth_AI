@@ -39,10 +39,7 @@ def test_on_jpg(image_path, model_path='yolov8n.pt'):
             disease_detected_pub.set(False)
             print(f"Nenhuma doença detectada em {image_path}")
 
-        # Salvar resultado visual
         r.save(filename=f"resultado_{os.path.basename(image_path)}")
 
 if __name__ == "__main__":
-    # Exemplo de uso: substitua pelo caminho da sua imagem
-    # test_on_jpg('sua_foto_planta.jpg', 'best.pt')
     print("Script de teste de imagem JPG configurado.")

@@ -1,8 +1,3 @@
-/* 
-  Firmware para Arduino - PlantGuard AI (Versão 8 Sensores)
-  Lê 8 sensores analógicos e envia via Serial para a Raspberry Pi.
-*/
-
 #include <ArduinoJson.h>
 
 // Definição dos Pinos (A0 a A7)
@@ -16,7 +11,7 @@ const int S_PH_1      = A6;
 const int S_PH_2      = A7;
 
 // Atuadores
-const int PIN_BOMBA   = 8; // Pino digital para o relé da bomba
+const int PIN_BOMBA   = 8; 
 
 void setup() {
   Serial.begin(9600);
@@ -25,7 +20,7 @@ void setup() {
 }
 
 void loop() {
-  // 0. Verificar Comandos Serial (Vindos da Raspberry)
+  // 0. Verificar Comandos Serial 
   if (Serial.available() > 0) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
@@ -53,7 +48,7 @@ void loop() {
   float luz1     = map(valL1, 0, 1023, 0, 100);
   float luz2     = map(valL2, 0, 1023, 0, 100);
   
-  // Conversão simples para Temperatura (ex: sensor LM35)
+  // Conversão simples para Temperatura 
   float temp1    = (valT1 * 5.0 * 100.0) / 1024.0;
   float temp2    = (valT2 * 5.0 * 100.0) / 1024.0;
   
@@ -61,7 +56,6 @@ void loop() {
   float ph1      = map(valP1, 0, 1023, 0, 1400) / 100.0;
   float ph2      = map(valP2, 0, 1023, 0, 1400) / 100.0;
 
-  // 3. Montar JSON
   StaticJsonDocument<512> doc;
   doc["u1"] = umidade1;
   doc["u2"] = umidade2;
@@ -72,7 +66,6 @@ void loop() {
   doc["p1"] = ph1;
   doc["p2"] = ph2;
 
-  // 4. Enviar Serial
   serializeJson(doc, Serial);
   Serial.println();
 

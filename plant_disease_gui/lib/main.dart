@@ -41,7 +41,6 @@ class _MainTabControllerState extends State<MainTabController> {
   bool isConnected = false;
   String raspIP = "127.0.0.1";
 
-  // Publishers Corrigidos (Resolvendo L91)
   NT4Topic? pumpPub;
   NT4Topic? phPub;
 
@@ -85,14 +84,12 @@ class _MainTabControllerState extends State<MainTabController> {
   void _setupNT4() {
     // Fecha cliente antigo se existir para evitar vazamento de memória
     if (isConnected) {
-      // Nota: Algumas versões do nt4 não têm close(), mas podemos ao menos limpar as referências
     }
 
     client = NT4Client(
       serverBaseAddress: raspIP,
       onConnect: () {
         setState(() => isConnected = true);
-        // Inicialização correta dos Publishers conforme API v1.3.3
         pumpPub = client.publishNewTopic('/SmartDashboard/CmdPump', NT4TypeStr.typeBool);
         phPub = client.publishNewTopic('/SmartDashboard/PH_Offset', NT4TypeStr.typeFloat64);
         
