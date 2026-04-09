@@ -23,6 +23,10 @@ temp2_pub = table.getDoubleTopic("Temp2").publish()
 ph1_pub = table.getDoubleTopic("PH1").publish()
 ph2_pub = table.getDoubleTopic("PH2").publish()
 
+# Novos Tópicos de Controle Físico
+locked_pub = table.getBooleanTopic("Locked").publish()
+light_int_pub = table.getDoubleTopic("LightInt").publish()
+
 # --- CONFIGURAÇÃO SERIAL (ARDUINO) ---
 try:
     ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)
@@ -38,7 +42,42 @@ except Exception as e:
     print(f"Erro ao carregar modelo: {e}")
     exit()
 
-cap = cv2.VideoCapture(0)
+def get_best_camera():
+    """Tenta encontrar uma câmera funcional, priorizando WebCams externas (índices 1 e 2)."""
+    test_indices = [1, 2, 0, 3, 4]
+    working_cameras = []
+    
+    print(f" [CAM] Iniciando busca por câmeras (priorizando índices {test_indices[:2]})...")
+    
+    for idx in test_indices:
+        cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(idx)
+            
+        if cap.isOpened():
+            ret, _ = cap.read()
+            if ret:
+                working_cameras.append(idx)
+                print(f" [CAM] Câmera encontrada no index {idx}")
+            cap.release()
+
+    if not working_cameras:
+        print(" [!] ERRO: Nenhuma câmera funcional detectada nos índices testados.")
+        return 0
+    
+    for target in [1, 2]:
+        if target in working_cameras:
+            print(f" [CAM] Selecionando WebCam Externa (Index {target})")
+            return target
+            
+    print(f" [CAM] Nenhuma WebCam externa (1/2) encontrada. Usando Index {working_cameras[0]}")
+    return working_cameras[0]
+
+cam_idx = get_best_camera()
+cap = cv2.VideoCapture(cam_idx)
+if not cap.isOpened():
+    print(f"Erro: Webcam no index {cam_idx} não pôde ser aberta.")
+    exit()
 
 # --- LISTENERS PARA COMANDOS DO DART ---
 PLANT_CLASSES = [0, 1, 2] # 0: folha_seca, 1: planta_bicolor, 2: mancha
@@ -61,13 +100,13 @@ def ph_listener(event):
 
 inst.addListener(
     table.getEntry("CmdPump"), 
-    ntcore.EventFlags.VALUE_ALL, 
+    ntcore.EventFlags.kValueAll, 
     pump_listener
 )
 
 inst.addListener(
     table.getEntry("PH_Offset"), 
-    ntcore.EventFlags.VALUE_ALL, 
+    ntcore.EventFlags.kValueAll, 
     ph_listener
 )
 
@@ -122,6 +161,8 @@ while True:
             if "t2" in data: temp2_pub.set(float(data["t2"]))
             if "p1" in data: ph1_pub.set(float(data["p1"]))
             if "p2" in data: ph2_pub.set(float(data["p2"]))
+            if "locked" in data: locked_pub.set(bool(data["locked"]))
+            if "light_int" in data: light_int_pub.set(float(data["light_int"]))
         except Exception as e:
             print(f"Erro ao ler serial: {e}")
 
