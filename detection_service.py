@@ -127,7 +127,6 @@ def on_fps_change(event):
 # --- LÓGICA DE DETECÇÃO ---
 def get_best_camera():
     """Tenta encontrar uma câmera funcional, priorizando WebCams externas (índices 1 e 2)."""
-    # Testamos os índices em uma ordem que prioriza a WebCam externa (geralmente index 1 ou 2)
     # A câmera integrada do laptop ou a câmera CSI da Pi costumam ser o index 0.
     test_indices = [1, 2, 0, 3, 4]
     working_cameras = []
@@ -135,7 +134,7 @@ def get_best_camera():
     print(f" [STREAM] Iniciando busca por câmeras (priorizando índices {test_indices[:2]})...")
     
     for idx in test_indices:
-        # Tenta abrir a câmera. Usamos CAP_V4L2 no Linux/Pi, mas deixamos o OpenCV decidir se falhar.
+        # Tenta abrir a câmera. Usamos CAP_V4L2 no Linux/Pi, mas o OpenCV vai decidir se falhar.
         cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
         if not cap.isOpened():
             cap = cv2.VideoCapture(idx) # Tenta sem backend específico
@@ -151,8 +150,6 @@ def get_best_camera():
         print(" [!] ERRO: Nenhuma câmera funcional detectada nos índices testados.")
         return 0
     
-    # Se encontramos a WebCam externa (index 1 ou 2), usamos ela. 
-    # Caso contrário, usamos a primeira que funcionar.
     for target in [1, 2]:
         if target in working_cameras:
             print(f" [STREAM] Selecionando WebCam Externa (Index {target})")
@@ -236,8 +233,6 @@ def run_detection():
                     is_healthy_label = any(word in label.lower() for word in ['healthy', 'saudavel', 'saudável'])
 
                     if not (is_disease or is_healthy_label):
-                        # Se não for uma das nossas classes de plantas, avisamos o que é
-                        # print(f" [AI] Objeto ignorado (não é planta): {label}")
                         continue 
                     
                     if is_disease:

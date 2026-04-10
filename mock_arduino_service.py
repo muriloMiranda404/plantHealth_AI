@@ -23,7 +23,6 @@ def run_mock():
     print(" [MOCK] Enviando dados fictícios para o App...")
 
     while True:
-        # Gera valores aleatórios realistas
         pubs["Umid1"].set(random.uniform(60, 80))
         pubs["Umid2"].set(random.uniform(55, 75))
         pubs["Luz1"].set(random.uniform(300, 400))
