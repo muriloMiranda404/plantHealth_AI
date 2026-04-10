@@ -19,6 +19,10 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// Removemos o bloco que causava erro de "already evaluated"
+// Se os avisos de Java 8 persistirem, a melhor forma é atualizar os plugins no pubspec.yaml
+// ou ignorar, já que não impedem a construção do APK.
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
