@@ -1,33 +1,42 @@
+import os
+import shutil
 from ultralytics import YOLO
 
 def train_model():
-    """
-    Treina o modelo YOLOv8 usando seu dataset de imagens JPG locais.
-    Sua pasta 'dataset' deve estar organizada assim:
-    /dataset
-        /images
-            /train (seus JPGs de treino)
-            /val   (seus JPGs de validação)
-        /labels
-            /train (seus .txt correspondentes a cada imagem)
-            /val   (seus .txt correspondentes a cada imagem)
-    """
+    # 1. Carregar um modelo pré-treinado (YOLOv8 Nano é ideal para Raspberry Pi)
+    model = YOLO('yolov8n.pt')
+
+    # 2. Caminho para o arquivo de dados
+    data_path = os.path.join(os.getcwd(), 'data.yaml')
     
-    model = YOLO('best.pt') 
+    if not os.path.exists(data_path):
+        print(f" [!] ERRO: Arquivo {data_path} não encontrado!")
+        return
+
+    print("--- INICIANDO TREINAMENTO INTELIGENTE ---")
+    print(" Isso pode demorar dependendo do seu hardware.")
     
+    # 3. Treinar o modelo
     results = model.train(
-        data='plant_diseases.yaml', 
-        epochs=50,
-        imgsz=640,
-        device='cpu', 
-        project='treino_plantas',
-        name='modelo_v1'
+        data=data_path,
+        epochs=10,
+        imgsz=320,
+        batch=16,
+        name='plant_disease_model',
+        device='cpu' # Mude para '0' se tiver GPU NVIDIA
     )
     
-    print("Treino concluído! O modelo treinado está em: treino_plantas/modelo_v1/weights/best.pt")
+    print("--- TREINAMENTO CONCLUÍDO ---")
+    
+    # 4. Copiar o arquivo best.pt gerado para a pasta raiz automaticamente
+    generated_best_path = os.path.join(results.save_dir, 'weights', 'best.pt')
+    target_best_path = os.path.join(os.getcwd(), 'best.pt')
+    
+    if os.path.exists(generated_best_path):
+        shutil.copy(generated_best_path, target_best_path)
+        print(f" [+] SUCESSO: O melhor modelo foi copiado para: {target_best_path}")
+    else:
+        print(f" [!] AVISO: Não foi possível encontrar o arquivo gerado em {generated_best_path}")
 
 if __name__ == "__main__":
-    print("Iniciando treinamento com seus arquivos JPG...")
-
-    train_model() 
-    print("Certifique-se de que a estrutura de pastas /dataset/images e /dataset/labels está correta.")
+    train_model()

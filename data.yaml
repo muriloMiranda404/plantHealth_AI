@@ -1,0 +1,9 @@
+path: c:/Users/erika/Downloads/teste/dataset
+train: images/train
+val: images/val
+
+names:
+  0: folha_seca
+  1: planta_bicolor
+  2: mancha
+  3: saudavel
