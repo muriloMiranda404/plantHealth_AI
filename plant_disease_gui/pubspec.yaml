@@ -1,9 +1,12 @@
 name: plant_health
 description: "A new Flutter project."
 publish_to: 'none'
+
 version: 1.0.0+1
+
 environment:
   sdk: ^3.11.4
+
 dependencies:
   flutter:
     sdk: flutter
@@ -26,18 +29,23 @@ dependencies:
   nsd: ^5.0.1
   speech_to_text: ^7.0.0
   flutter_tts: ^4.2.2
+  image_picker: ^1.0.7
+  http: ^0.13.6
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_launcher_icons: ^0.13.1
   flutter_lints: ^6.0.0
+
 flutter_launcher_icons:
   android: true
   ios: false
   image_path: "assets/logo.png"
   min_sdk_android: 21
-  adaptive_icon_background: "
+  adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/logo.png"
+
 flutter:
   uses-material-design: true
   assets:

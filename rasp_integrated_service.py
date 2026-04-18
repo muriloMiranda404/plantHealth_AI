@@ -67,11 +67,14 @@ class StreamHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 def start_mjpeg_server():
-    try:
-        server = ThreadedHTTPServer(('0.0.0.0', 5000), StreamHandler)
-        server.serve_forever()
-    except Exception as e:
-        print(f" [ERRO] Servidor MJPEG falhou: {e}")
+    while True:
+        try:
+            print(f" [SISTEMA] Iniciando Servidor MJPEG na porta 5000...")
+            server = ThreadedHTTPServer(('0.0.0.0', 5000), StreamHandler)
+            server.serve_forever()
+        except Exception as e:
+            print(f" [ERRO] Servidor MJPEG falhou: {e}. Reiniciando em 5s...")
+            time.sleep(5)
 def create_test_frame(text="CAMERA OFFLINE"):
     import numpy as np
     img = np.zeros((320, 240, 3), np.uint8)
@@ -89,16 +92,22 @@ async def ws_handler(websocket):
     except: pass
     finally: WS_CLIENTS.remove(websocket)
 async def ws_server_logic():
-    try:
-        async with websockets.serve(ws_handler, "0.0.0.0", 8765, ping_interval=None):
-            while True:
-                if WS_CLIENTS:
-                    msg = latest_sensor_json
-                    for client in list(WS_CLIENTS):
-                        try: await client.send(msg)
-                        except: pass
-                await asyncio.sleep(0.2)
-    except: pass
+    while True:
+        try:
+            print(f" [SISTEMA] Iniciando Servidor WebSocket na porta 8765...")
+            async with websockets.serve(ws_handler, "0.0.0.0", 8765, ping_interval=20, ping_timeout=20):
+                while True:
+                    if WS_CLIENTS:
+                        msg = latest_sensor_json
+                        for client in list(WS_CLIENTS):
+                            try:
+                                await client.send(msg)
+                            except:
+                                pass
+                    await asyncio.sleep(0.2)
+        except Exception as e:
+            print(f" [ERRO] Servidor WebSocket falhou: {e}. Reiniciando em 5s...")
+            await asyncio.sleep(5)
 def start_ws():
     asyncio.run(ws_server_logic())
 def ai_process_worker(queue_in, queue_out, model_path):
@@ -192,7 +201,7 @@ def find_arduino():
             for baud in [115200, 9600]:
                 try:
                     print(f" [SISTEMA] Tentando conexão serial em {port.device} @ {baud}...")
-                    s = serial.Serial(port.device, baud, timeout=1)
+                    s = serial.Serial(port.device, baud, timeout=0.01)
                     time.sleep(2)
                     print(f" [SISTEMA] Placa Arduino detectada e aberta em {port.device}")
                     return s
@@ -210,7 +219,7 @@ if __name__ == "__main__":
     MQTT_TOPIC_PREFIX = "plantguard_pro/device_ref_9921"
     SIMULATION_MODE = False
     AI_ENABLED = True
-    NIGHT_MODE = False
+    ECO_MODE = False
     CAMERA_BRIGHTNESS = 0.0
     CAMERA_TARGET_FPS = 15
     TAKE_PHOTO_REQUEST = False
@@ -242,16 +251,12 @@ if __name__ == "__main__":
             AI_ENABLED = event.data.value.getBoolean()
             print(f" [NT4] IA {'Ativada' if AI_ENABLED else 'Desativada'}")
         except: pass
-    def on_nt_night_mode(event):
-        global NIGHT_MODE
+    def on_nt_eco_mode(event):
+        global ECO_MODE
         try:
-            NIGHT_MODE = event.data.value.getBoolean()
-            print(f" [NT4] Modo Noturno {'Ativado' if NIGHT_MODE else 'Desativado'}")
+            ECO_MODE = event.data.value.getBoolean()
+            print(f" [NT4] Modo Econômico {'Ativado' if ECO_MODE else 'Desativado'}")
         except: pass
-    inst.addListener(table.getEntry("CameraBrightness"), ntcore.EventFlags.kValueAll, on_nt_brightness_change)
-    inst.addListener(table.getEntry("CameraTargetFPS"), ntcore.EventFlags.kValueAll, on_nt_fps_change)
-    inst.addListener(table.getEntry("AIEnable"), ntcore.EventFlags.kValueAll, on_nt_ai_enable)
-    inst.addListener(table.getEntry("NightMode"), ntcore.EventFlags.kValueAll, on_nt_night_mode)
     ai_queue_in = mp.Queue(maxsize=1)
     ai_queue_out = mp.Queue(maxsize=1)
     ai_p = mp.Process(target=ai_process_worker, args=(ai_queue_in, ai_queue_out, 'best.pt'), daemon=True)
@@ -259,7 +264,7 @@ if __name__ == "__main__":
     mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     mqtt_connected = False
     def on_mqtt_message(client, userdata, msg):
-        global SIMULATION_MODE, AI_ENABLED, CAMERA_BRIGHTNESS, CAMERA_TARGET_FPS, TAKE_PHOTO_REQUEST, NIGHT_MODE
+        global SIMULATION_MODE, AI_ENABLED, CAMERA_BRIGHTNESS, CAMERA_TARGET_FPS, TAKE_PHOTO_REQUEST, ECO_MODE
         try:
             payload = msg.payload.decode('utf-8').strip()
             topic = msg.topic.split('/')[-1]
@@ -284,15 +289,25 @@ if __name__ == "__main__":
                 except: pass
             elif topic == "take_photo":
                 TAKE_PHOTO_REQUEST = True
-            elif topic == "night_mode":
-                NIGHT_MODE = (payload.lower() == "true")
+            elif topic == "eco_mode":
+                ECO_MODE = (payload.lower() == "true")
             elif topic == "pump":
                 if ser and ser.is_open:
                     status = payload.lower()
                     is_on = status in ["true", "on", "1"]
-                    cmd = f"PUMP:{'ON' if is_on else 'OFF'}\n"
+                    cmd = f"{'B1' if is_on else 'B0'}\n"
                     ser.write(cmd.encode())
-                    print(f" [ARDUINO] Enviando comando: {cmd.strip()}")
+                    print(f" [ARDUINO] Enviando comando Bomba: {cmd.strip()}")
+            elif topic == "config":
+                if ser and ser.is_open:
+                    cmd = f"{payload}\n"
+                    ser.write(cmd.encode())
+                    print(f" [ARDUINO] Enviando Configuração: {cmd.strip()}")
+            elif topic == "cmd":
+                if ser and ser.is_open:
+                    cmd = f"{payload}\n"
+                    ser.write(cmd.encode())
+                    print(f" [ARDUINO] Enviando Comando JSON: {cmd.strip()}")
         except Exception as e: 
             print(f" [MQTT ERRO] {e}")
     def on_connect(client, userdata, flags, rc, properties=None):
@@ -300,12 +315,12 @@ if __name__ == "__main__":
         if rc == 0:
             mqtt_connected = True
             print(f" [MQTT] Conectado ao Broker com sucesso!")
-            client.subscribe(f"{MQTT_TOPIC_PREFIX}/cmd/
+            client.subscribe(f"{MQTT_TOPIC_PREFIX}/cmd/#")
             client.publish(f"{MQTT_TOPIC_PREFIX}/mqtt_status", "connected", retain=True)
         else:
             print(f" [MQTT] Erro na conexão: {rc}")
     def on_nt_change(event):
-        global CAMERA_BRIGHTNESS, CAMERA_TARGET_FPS, AI_ENABLED, NIGHT_MODE
+        global CAMERA_BRIGHTNESS, CAMERA_TARGET_FPS, AI_ENABLED, ECO_MODE
         try:
             name = event.data.topic.getName().split('/')[-1]
             val = event.data.value.value()
@@ -319,11 +334,27 @@ if __name__ == "__main__":
                 if 1 <= val_int <= 60: CAMERA_TARGET_FPS = val_int
             elif name == "AIEnable":
                 AI_ENABLED = bool(val)
-            elif name == "NightMode":
-                NIGHT_MODE = bool(val)
+            elif name == "EcoMode":
+                ECO_MODE = bool(val)
+            elif name == "CmdPump":
+                if ser and ser.is_open:
+                    is_on = val is True or val == "1" or val == 1
+                    cmd = f"{'B1' if is_on else 'B0'}\n"
+                    ser.write(cmd.encode())
+                    print(f" [ARDUINO-NT4] Bomba: {cmd.strip()} (raw: {val})")
+            elif name == "ArduinoConfig":
+                if ser and ser.is_open:
+                    cmd = f"{val}\n"
+                    ser.write(cmd.encode())
+                    print(f" [ARDUINO-NT4] Enviando Config: {cmd.strip()}")
+            elif name == "ArduinoCmd":
+                if ser and ser.is_open:
+                    cmd = f"{val}\n"
+                    ser.write(cmd.encode())
+                    print(f" [ARDUINO-NT4] Enviando Comando: {cmd.strip()}")
         except Exception as e:
             print(f" [NT4 ERRO] {e}")
-    inst.addListener(table, ntcore.EventFlags.kValueAll, on_nt_change)
+    inst.addListener(["/SmartDashboard/"], ntcore.EventFlags.kValueAll, on_nt_change)
     mqtt_client.on_message = on_mqtt_message
     mqtt_client.on_connect = on_connect
     def start_mqtt():
@@ -343,18 +374,40 @@ if __name__ == "__main__":
     print(f" [SISTEMA] Servidor MJPEG ON em http://{get_local_ip()}:5000/video_feed")
     threading.Thread(target=start_ws, daemon=True).start()
     print(f" [SISTEMA] Servidor WebSocket ON na porta 8765")
-    cap = cv2.VideoCapture(1, cv2.CAP_V4L2)
-    if not cap.isOpened(): cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    cap = None
     ser = find_arduino()
     frame_count = 0
     fps_start_time = time.time()
     fps_frame_counter = 0
     last_serial_time = time.time()
     latest_ai_results = {"boxes": []}
+    print(" [SISTEMA] Iniciando Loop Principal...")
     while True:
         loop_start_time = time.time()
         try:
+            if cap is None or not cap.isOpened():
+                if frame_count % 50 == 0:
+                    print(f" [CÂMERA] Tentando abrir câmera (V4L2)...")
+                    for idx in [0, 1, 2]:
+                        for backend in [cv2.CAP_V4L2, cv2.CAP_ANY]:
+                            cap = cv2.VideoCapture(idx, backend)
+                            if cap.isOpened():
+                                print(f" [CÂMERA] Sucesso no índice {idx} com backend {backend}")
+                                break
+                        if cap and cap.isOpened(): break
+                    if cap and cap.isOpened():
+                        print(f" [CÂMERA] Configurando resolução e FPS...")
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                        cap.set(cv2.CAP_PROP_BRIGHTNESS, (CAMERA_BRIGHTNESS + 100) / 200.0)
+                        cap.set(cv2.CAP_PROP_FPS, CAMERA_TARGET_FPS)
+                with frame_lock:
+                    current_encoded_frame = create_test_frame("BUSCANDO CÂMERA...")
             if cap and cap.isOpened():
+                if frame_count % 100 == 0:
+                    current_hw_fps = cap.get(cv2.CAP_PROP_FPS)
+                    if abs(current_hw_fps - CAMERA_TARGET_FPS) > 1:
+                        cap.set(cv2.CAP_PROP_FPS, CAMERA_TARGET_FPS)
                 ret, frame = cap.read()
                 if ret:
                     h, w = frame.shape[:2]
@@ -378,12 +431,15 @@ if __name__ == "__main__":
                         fps_frame_counter = 0
                         fps_start_time = time.time()
                     try:
-                        ret_enc, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
+                        ret_enc, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 35])
                         if ret_enc:
-                            with frame_lock: current_encoded_frame = buffer.tobytes()
-                    except: pass
-                    if AI_ENABLED and frame_count % 10 == 0:
-                        if ai_queue_in.empty(): ai_queue_in.put(frame)
+                            with frame_lock:
+                                current_encoded_frame = buffer.tobytes()
+                    except:
+                        pass
+                    if AI_ENABLED and frame_count % 20 == 0:
+                        if ai_queue_in.empty():
+                            ai_queue_in.put(frame)
                     if TAKE_PHOTO_REQUEST:
                         import os
                         if not os.path.exists('capturas'):
@@ -395,14 +451,9 @@ if __name__ == "__main__":
                         mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/photo_saved", filename)
                         TAKE_PHOTO_REQUEST = False
                 else:
-                    print(" [CÂMERA] Falha na leitura. Reiniciando...")
+                    print(" [CÂMERA] Falha na leitura do frame. Liberando recurso...")
                     cap.release()
                     cap = None
-            else:
-                if frame_count % 100 == 0:
-                    cap = cv2.VideoCapture(1, cv2.CAP_V4L2)
-                    if not cap.isOpened(): cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-                with frame_lock: current_encoded_frame = create_test_frame("BUSCANDO CÂMERA...")
             if ser:
                 try:
                     if ser.is_open:
@@ -411,16 +462,20 @@ if __name__ == "__main__":
                             if line.startswith('{'):
                                 try:
                                     data = json.loads(line)
-                                    for k, v in data.items(): mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/{k}", str(v))
+                                    latest_sensor_json = line
+                                    for k, v in data.items():
+                                        mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/{k}", str(v))
                                     last_serial_time = time.time()
-                                except: pass
-                    else: raise Exception("Serial fechado")
+                                except:
+                                    pass
+                    else:
+                        raise Exception("Serial fechado")
                 except: 
                     ser = None
-                    print(" [ARDUINO] Conexão perdida.")
+                    print(" [ARDUINO] Conexão serial perdida ou placa desconectada.")
             elif frame_count % 100 == 0: 
                 ser = find_arduino()
-            if frame_count % 20 == 0:
+            if frame_count % 40 == 0:
                 mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/heartbeat", str(time.time()))
                 mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/arduino_board", "true" if ser else "false")
                 mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/camera_status", "true" if cap and cap.isOpened() else "false")
@@ -435,17 +490,23 @@ if __name__ == "__main__":
                 nt_status_pub.set(res['status'])
                 nt_disease_pub.set(res['disease'].lower() == "true")
                 nt_conf_pub.set(res['confidence'])
-            if SIMULATION_MODE and frame_count % 10 == 0:
+            if SIMULATION_MODE and frame_count % 20 == 0:
                 import random
                 fake_data = {"u1": random.uniform(40,60), "t1": random.uniform(20,30), "water_level": random.uniform(70,90)}
-                for k, v in fake_data.items(): mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/{k}", str(v))
+                fake_json = json.dumps(fake_data)
+                latest_sensor_json = fake_json
+                for k, v in fake_data.items():
+                    mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/{k}", str(v))
             frame_count += 1
             loop_duration = time.time() - loop_start_time
-            sleep_time = (1.0 / CAMERA_TARGET_FPS) - loop_duration
-            if sleep_time > 0:
+            target_period = 1.0 / CAMERA_TARGET_FPS
+            sleep_time = target_period - loop_duration
+            if sleep_time > 0.001:
                 time.sleep(sleep_time)
+            elif sleep_time < -0.05:
+                time.sleep(0.001)
             else:
-                time.sleep(0.005)
+                pass
         except Exception as e:
             print(f" [ERRO LOOP] {e}")
             time.sleep(1)

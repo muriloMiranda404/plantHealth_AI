@@ -1,37 +1,62 @@
-#include <ArduinoJson.hpp>
+#include <ArduinoJson.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <EEPROM.h>
 
-// Definição dos Pinos RFID
 #define SS_PIN 10
 #define RST_PIN 9
 MFRC522 rfid(SS_PIN, RST_PIN);
 
-// Definição dos Pinos de Controle Físico
-const int PIN_POT         = A0; // Potenciômetro para regular luz
-const int PIN_LUZ_FISICA  = 6;  // Saída PWM para os LEDs da plantação
-const int PIN_LED_STATUS  = 7;  // LED que indica se está liberado (VERDE) ou bloqueado (VERMELHO/OFF)
+struct SensorConfig {
+  char id[4];
+  int pin;
+  bool enabled;
+};
 
-// Pinos dos Sensores (A1 a A7)
-const int S_UMIDADE_1 = A1;
-const int S_UMIDADE_2 = A2;
-const int S_LUZ_1     = A3;
-const int S_LUZ_2     = A4;
-const int S_TEMP_1    = A5;
-const int S_TEMP_2    = A6; // Disponível em Nano/Mega
-const int S_PH_1      = A7; // Disponível em Nano/Mega
+SensorConfig sensors[] = {
+  {"u1", A1, true},
+  {"u2", A2, true},
+  {"l1", A3, true},
+  {"l2", A4, true},
+  {"t1", A5, true},
+  {"t2", A6, true},
+  {"p1", A7, true}
+};
+const int numSensors = 7;
 
-// Atuadores
-const int PIN_BOMBA   = 8; 
-
-// Estado do Sistema
+byte masterUID[4] = {0x00, 0x00, 0x00, 0x00};
 bool isAccessGranted = false;
+bool registerMode = false;
+
+const int PIN_POT         = A0; 
+const int PIN_LUZ_FISICA  = 6;  
+const int PIN_LED_STATUS  = 7;  
+const int PIN_BOMBA       = 8; 
+
 int currentLightIntensity = 0;
+
+void saveConfigs() {
+  int addr = 0;
+  for (int i = 0; i < numSensors; i++) {
+    EEPROM.put(addr, sensors[i]);
+    addr += sizeof(SensorConfig);
+  }
+  EEPROM.put(addr, masterUID);
+}
+
+void loadConfigs() {
+  int addr = 0;
+  for (int i = 0; i < numSensors; i++) {
+    EEPROM.get(addr, sensors[i]);
+    addr += sizeof(SensorConfig);
+  }
+  EEPROM.get(addr, masterUID);
+}
 
 void setup() {
   Serial.begin(9600);
-  SPI.begin();           // Inicializa barramento SPI
-  rfid.PCD_Init();       // Inicializa módulo RC522
+  SPI.begin();
+  rfid.PCD_Init();
 
   pinMode(PIN_BOMBA, OUTPUT);
   pinMode(PIN_LUZ_FISICA, OUTPUT);
@@ -41,74 +66,124 @@ void setup() {
   digitalWrite(PIN_LED_STATUS, LOW);
   analogWrite(PIN_LUZ_FISICA, 0);
 
-  Serial.println("Sistema PlantGuard Iniciado...");
-  Serial.println("Aproxime o cartão RFID para liberar o controle de luz.");
+  loadConfigs();
+
+  Serial.println("{\"msg\":\"Sistema PlantGuard Online\"}");
 }
 
 void loop() {
-  // 1. Lógica de Acesso RFID
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-    isAccessGranted = !isAccessGranted; // Alterna acesso ao detectar cartão
-    digitalWrite(PIN_LED_STATUS, isAccessGranted ? HIGH : LOW);
+    if (registerMode) {
+      for (byte i = 0; i < 4; i++) masterUID[i] = rfid.uid.uidByte[i];
+      saveConfigs();
+      registerMode = false;
+      Serial.println("{\"msg\":\"Novo RFID registrado\"}");
+    } else {
+      bool match = true;
+      bool allZeros = true;
+      for (byte i = 0; i < 4; i++) {
+        if (masterUID[i] != 0x00) allZeros = false;
+        if (rfid.uid.uidByte[i] != masterUID[i]) match = false;
+      }
+
+      if (allZeros) match = true;
+
+      Serial.print("{\"event\":\"rfid_detected\",\"uid\":\"");
+      for (byte i = 0; i < rfid.uid.size; i++) {
+        Serial.print(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
+        Serial.print(rfid.uid.uidByte[i], HEX);
+      }
+      Serial.print("\",\"match\":");
+      Serial.print(match ? "true" : "false");
+      Serial.println("}");
+
+      if (match) {
+        isAccessGranted = !isAccessGranted;
+        digitalWrite(PIN_LED_STATUS, isAccessGranted ? HIGH : LOW);
+      }
+    }
     
-    Serial.print("Controle ");
-    Serial.println(isAccessGranted ? "LIBERADO" : "BLOQUEADO");
-    
-    rfid.PICC_HaltA(); // Para leitura do cartão
+    rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
   }
 
-  // 2. Lógica do Potenciômetro (Apenas se liberado)
   if (isAccessGranted) {
     int potVal = analogRead(PIN_POT);
     currentLightIntensity = map(potVal, 0, 1023, 0, 255);
     analogWrite(PIN_LUZ_FISICA, currentLightIntensity);
   }
 
-  // 3. Verificar Comandos Serial (Bomba)
   if (Serial.available() > 0) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
-    
-    if (cmd == "B1") {
-      digitalWrite(PIN_BOMBA, HIGH);
-    } else if (cmd == "B0") {
-      digitalWrite(PIN_BOMBA, LOW);
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+
+    if (input.startsWith("{")) {
+      StaticJsonDocument<256> doc;
+      DeserializationError error = deserializeJson(doc, input);
+      if (!error) {
+        if (doc.containsKey("cfg")) {
+          const char* id = doc["cfg"]["id"];
+          JsonVariant pinVar = doc["cfg"]["pin"];
+          bool enabled = doc["cfg"]["enabled"];
+          
+          int finalPin = -1;
+          if (pinVar.is<int>()) {
+            finalPin = pinVar.as<int>();
+          } else if (pinVar.is<const char*>()) {
+            const char* pinStr = pinVar.as<const char*>();
+            if (pinStr[0] == 'A' || pinStr[0] == 'a') {
+              finalPin = A0 + atoi(pinStr + 1);
+            } else {
+              finalPin = atoi(pinStr);
+            }
+          }
+
+          if (finalPin != -1) {
+            for (int i = 0; i < numSensors; i++) {
+              if (strcmp(sensors[i].id, id) == 0) {
+                sensors[i].pin = finalPin;
+                sensors[i].enabled = enabled;
+                saveConfigs();
+                Serial.println("{\"msg\":\"Configuracao atualizada\",\"id\":\"" + String(id) + "\",\"pin\":" + String(finalPin) + "}");
+                break;
+              }
+            }
+          }
+        } else if (doc.containsKey("cmd")) {
+          const char* cmd = doc["cmd"];
+          if (strcmp(cmd, "register_rfid") == 0) {
+            registerMode = true;
+            Serial.println("{\"msg\":\"Aproxime o novo cartao\"}");
+          }
+        }
+      }
+    } else {
+      if (input == "B1") digitalWrite(PIN_BOMBA, HIGH);
+      else if (input == "B0") digitalWrite(PIN_BOMBA, LOW);
     }
   }
 
-  // 4. Leitura dos sensores
-  int valU1 = analogRead(S_UMIDADE_1);
-  int valU2 = analogRead(S_UMIDADE_2);
-  int valL1 = analogRead(S_LUZ_1);
-  int valL2 = analogRead(S_LUZ_2);
-  int valT1 = analogRead(S_TEMP_1);
-  int valT2 = analogRead(S_TEMP_2);
-  int valP1 = analogRead(S_PH_1);
+  StaticJsonDocument<512> report;
+  for (int i = 0; i < numSensors; i++) {
+    if (sensors[i].enabled) {
+      int val = analogRead(sensors[i].pin);
+      float converted = 0;
+      
+      if (sensors[i].id[0] == 'u') converted = map(val, 1023, 200, 0, 100);
+      else if (sensors[i].id[0] == 'l') converted = map(val, 0, 1023, 0, 100);
+      else if (sensors[i].id[0] == 't') converted = (val * 5.0 * 100.0) / 1024.0;
+      else if (sensors[i].id[0] == 'p') converted = map(val, 0, 1023, 0, 1400) / 100.0;
+      
+      report[sensors[i].id] = converted;
+    }
+  }
 
-  // 5. Conversões
-  float umidade1 = map(valU1, 1023, 200, 0, 100);
-  float umidade2 = map(valU2, 1023, 200, 0, 100);
-  float luz1     = map(valL1, 0, 1023, 0, 100);
-  float luz2     = map(valL2, 0, 1023, 0, 100);
-  float temp1    = (valT1 * 5.0 * 100.0) / 1024.0;
-  float temp2    = (valT2 * 5.0 * 100.0) / 1024.0;
-  float ph1      = map(valP1, 0, 1023, 0, 1400) / 100.0;
+  report["locked"] = !isAccessGranted;
+  report["light_int"] = map(currentLightIntensity, 0, 255, 0, 100);
 
-  // 6. Reporte JSON
-  StaticJsonDocument<512> doc;
-  doc["u1"] = umidade1;
-  doc["u2"] = umidade2;
-  doc["l1"] = luz1;
-  doc["l2"] = luz2;
-  doc["t1"] = temp1;
-  doc["t2"] = temp2;
-  doc["p1"] = ph1;
-  doc["locked"] = !isAccessGranted;
-  doc["light_int"] = map(currentLightIntensity, 0, 255, 0, 100); // % de intensidade
-
-  serializeJson(doc, Serial);
+  serializeJson(report, Serial);
   Serial.println();
 
-  delay(500); // Reduzido delay para melhor resposta do RFID e Pot
+  delay(500);
 }
+

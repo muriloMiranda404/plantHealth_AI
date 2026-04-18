@@ -1,7 +1,6 @@
 import os
 import cv2
 import numpy as np
-
 def get_leaf_bbox(image_path):
     """
     Tenta encontrar o bounding box da folha usando processamento de imagem simples.
@@ -10,56 +9,32 @@ def get_leaf_bbox(image_path):
     img = cv2.imread(image_path)
     if img is None:
         return None
-    
     h, w = img.shape[:2]
-    
-    # Converter para HSV para facilitar a detecção de cores (verde/amarelo/marrom)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    
-    # Criar uma máscara para tons de verde e marrom (comum em folhas e doenças)
-    # Verde
     lower_green = np.array([35, 20, 20])
     upper_green = np.array([85, 255, 255])
     mask_green = cv2.inRange(hsv, lower_green, upper_green)
-    
-    # Marrom/Amarelo (doenças)
     lower_brown = np.array([10, 20, 20])
     upper_brown = np.array([30, 255, 255])
     mask_brown = cv2.inRange(hsv, lower_brown, upper_brown)
-    
-    # Combinar máscaras
     mask = cv2.bitwise_or(mask_green, mask_brown)
-    
-    # Limpeza morfológica
     kernel = np.ones((5, 5), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    
-    # Encontrar contornos
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
     if not contours:
-        # Fallback: se não encontrar nada, usa um box central menor que o original
         return 0.5, 0.5, 0.7, 0.7
-    
-    # Pegar o maior contorno (provavelmente a folha)
     largest_contour = max(contours, key=cv2.contourArea)
     x, y, bw, bh = cv2.boundingRect(largest_contour)
-    
-    # Converter para formato YOLO (normalizado 0-1)
     x_center = (x + bw / 2) / w
     y_center = (y + bh / 2) / h
     width = bw / w
     height = bh / h
-    
-    # Garantir limites
     x_center = max(0, min(1, x_center))
     y_center = max(0, min(1, y_center))
     width = max(0.1, min(1, width))
     height = max(0.1, min(1, height))
-    
     return x_center, y_center, width, height
-
 def auto_label_dataset(base_path):
     """
     Varre as subpastas de images/train e gera arquivos .txt correspondentes
@@ -91,44 +66,34 @@ def auto_label_dataset(base_path):
         'bicolor': 1,
         'dry': 0
     }
-
     img_train_path = os.path.normpath(os.path.join(base_path, 'images', 'train'))
     label_train_path = os.path.normpath(os.path.join(base_path, 'labels', 'train'))
-
     if not os.path.exists(img_train_path):
         print(f" [!] ERRO: Pasta de imagens não encontrada: {img_train_path}")
         return
-
     if not os.path.exists(label_train_path):
         os.makedirs(label_train_path)
-
     print(f"Iniciando rotulagem INTELIGENTE em: {img_train_path}")
-
     labeled_count = 0
     for root, dirs, files in os.walk(img_train_path):
         folder_name = os.path.basename(root)
         print(f"DEBUG: Verificando pasta: {folder_name}")
-        
         class_id = None
         for key, val in class_mapping.items():
             if key.lower() in folder_name.lower():
                 class_id = val
                 print(f"DEBUG: Mapeado {folder_name} para classe {val} (chave: {key})")
                 break
-        
         if class_id is None:
             if files:
                 print(f"DEBUG: Pasta {folder_name} não mapeada, ignorando {len(files)} arquivos.")
             continue
-
         for file in files:
             if file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp')):
                 img_path = os.path.join(root, file)
                 print(f"DEBUG: Processando {file}...")
                 label_name = os.path.splitext(file)[0] + ".txt"
                 label_path = os.path.join(label_train_path, label_name)
-
-                # Sempre gera novo label para atualizar a lógica
                 bbox = get_leaf_bbox(img_path)
                 if bbox:
                     try:
@@ -137,9 +102,7 @@ def auto_label_dataset(base_path):
                         labeled_count += 1
                     except Exception as e:
                         print(f"Erro ao criar {label_name}: {e}")
-
     print(f"Rotulagem concluída! {labeled_count} imagens processadas.")
-
 if __name__ == "__main__":
     base_dir = r'c:\Users\erika\Downloads\teste\dataset'
     auto_label_dataset(base_dir)

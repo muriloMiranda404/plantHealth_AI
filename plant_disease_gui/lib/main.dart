@@ -21,12 +21,27 @@ import 'dart:convert';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
 import 'package:flutter_tts/flutter_tts.dart';
-void main() {
+import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
+import 'screens/splash_screen.dart';
+import 'services/app_provider.dart';
+import 'services/notification_service.dart';
+import 'services/database_service.dart';
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  runApp(const PlantGuardProApp());
+  final notificationService = NotificationService();
+  await notificationService.init();
+  await notificationService.requestPermissions();
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => AppProvider(),
+      child: const PlantGuardProApp(),
+    ),
+  );
 }
 class PlantGuardProApp extends StatefulWidget {
   const PlantGuardProApp({super.key});
@@ -36,6 +51,14 @@ class PlantGuardProApp extends StatefulWidget {
 class _PlantGuardProAppState extends State<PlantGuardProApp> {
   ThemeMode _themeMode = ThemeMode.dark;
   bool _showSplash = true;
+  Color _lightColor = Colors.green;
+  Color _darkColor = Colors.greenAccent;
+  double _cardRadius = 25.0;
+  double _borderWidth = 1.5;
+  bool _solidAppBar = false;
+  double _fontSizeDelta = 0.0;
+  bool _glassCards = true;
+  bool _glowEffects = true;
   @override
   void initState() {
     super.initState();
@@ -54,9 +77,25 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
       print("APP: Iniciando carregamento...");
       final prefs = await SharedPreferences.getInstance();
       final isDark = prefs.getBool('is_dark_mode') ?? true;
+      final savedLightColor = prefs.getInt('light_theme_color');
+      final savedDarkColor = prefs.getInt('dark_theme_color');
+      final savedRadius = prefs.getDouble('card_border_radius');
+      final savedBorderWidth = prefs.getDouble('card_border_width');
+      final savedSolidAppBar = prefs.getBool('solid_app_bar') ?? false;
+      final savedFontSize = prefs.getDouble('font_size_delta') ?? 0.0;
+      final savedGlassCards = prefs.getBool('glass_cards') ?? true;
+      final savedGlowEffects = prefs.getBool('glow_effects') ?? true;
       if (mounted) {
         setState(() {
           _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
+          if (savedLightColor != null) _lightColor = Color(savedLightColor);
+          if (savedDarkColor != null) _darkColor = Color(savedDarkColor);
+          if (savedRadius != null) _cardRadius = savedRadius;
+          if (savedBorderWidth != null) _borderWidth = savedBorderWidth;
+          _solidAppBar = savedSolidAppBar;
+          _fontSizeDelta = savedFontSize;
+          _glassCards = savedGlassCards;
+          _glowEffects = savedGlowEffects;
         });
       }
       print("APP: Configurações carregadas");
@@ -81,6 +120,52 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
       prefs.setBool('is_dark_mode', _themeMode == ThemeMode.dark);
     });
   }
+  void _updateThemeSettings({
+    Color? lightColor,
+    Color? darkColor,
+    double? radius,
+    double? borderWidth,
+    bool? solidAppBar,
+    double? fontSize,
+    bool? glassCards,
+    bool? glowEffects,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      if (lightColor != null) {
+        _lightColor = lightColor;
+        prefs.setInt('light_theme_color', lightColor.value);
+      }
+      if (darkColor != null) {
+        _darkColor = darkColor;
+        prefs.setInt('dark_theme_color', darkColor.value);
+      }
+      if (radius != null) {
+        _cardRadius = radius;
+        prefs.setDouble('card_border_radius', radius);
+      }
+      if (borderWidth != null) {
+        _borderWidth = borderWidth;
+        prefs.setDouble('card_border_width', borderWidth);
+      }
+      if (solidAppBar != null) {
+        _solidAppBar = solidAppBar;
+        prefs.setBool('solid_app_bar', solidAppBar);
+      }
+      if (fontSize != null) {
+        _fontSizeDelta = fontSize;
+        prefs.setDouble('font_size_delta', fontSize);
+      }
+      if (glassCards != null) {
+        _glassCards = glassCards;
+        prefs.setBool('glass_cards', glassCards);
+      }
+      if (glowEffects != null) {
+        _glowEffects = glowEffects;
+        prefs.setBool('glow_effects', glowEffects);
+      }
+    });
+  }
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -89,33 +174,46 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
-        colorSchemeSeed: Colors.green,
-        scaffoldBackgroundColor: const Color(0xFFFAF7F2),
+        colorSchemeSeed: _lightColor,
+        scaffoldBackgroundColor: const Color(0xFFF5F1E8),
+        appBarTheme: AppBarTheme(
+          backgroundColor: _solidAppBar ? _lightColor : Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+        ),
         cardTheme: CardThemeData(
-          color: Colors.white,
-          elevation: 2,
+          color: _glassCards
+              ? Colors.white.withValues(alpha: 0.4)
+              : Colors.white,
+          elevation: _glassCards ? 0 : 2,
           shadowColor: Colors.black.withValues(alpha: 0.1),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(25),
-            side: const BorderSide(color: Colors.black26, width: 1.5),
+            borderRadius: BorderRadius.circular(_cardRadius),
+            side: BorderSide(color: Colors.black26, width: _borderWidth),
           ),
         ),
-        dividerTheme: const DividerThemeData(
-          color: Colors.black26,
-          thickness: 1.5,
-        ),
+        dividerTheme: BorderSide.none == true
+            ? null
+            : DividerThemeData(color: Colors.black26, thickness: _borderWidth),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        colorSchemeSeed: Colors.greenAccent,
+        colorSchemeSeed: _darkColor,
         scaffoldBackgroundColor: const Color(0xFF0A0A0A),
+        appBarTheme: AppBarTheme(
+          backgroundColor: _solidAppBar ? _darkColor : Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+        ),
         cardTheme: CardThemeData(
-          color: Colors.white.withValues(alpha: 0.05),
+          color: _glassCards
+              ? Colors.white.withValues(alpha: 0.05)
+              : const Color(0xFF1E1E1E),
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(25),
-            side: const BorderSide(color: Colors.white10),
+            borderRadius: BorderRadius.circular(_cardRadius),
+            side: BorderSide(color: Colors.white10, width: _borderWidth),
           ),
         ),
       ),
@@ -125,238 +223,54 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
           : MainTabController(
               onThemeToggle: _toggleTheme,
               isDarkMode: _themeMode == ThemeMode.dark,
+              lightColor: _lightColor,
+              darkColor: _darkColor,
+              cardRadius: _cardRadius,
+              borderWidth: _borderWidth,
+              solidAppBar: _solidAppBar,
+              fontSizeDelta: _fontSizeDelta,
+              glassCards: _glassCards,
+              glowEffects: _glowEffects,
+              onSettingsChange: _updateThemeSettings,
             ),
-    );
-  }
-}
-class SplashScreen extends StatefulWidget {
-  final bool isDarkMode;
-  const SplashScreen({super.key, required this.isDarkMode});
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _opacityAnimation;
-  final List<_Leaf> _leaves = List.generate(25, (i) {
-    final leafIcons = [
-      Icons.eco,
-      Icons.eco_outlined,
-      Icons.grass,
-      Icons.local_florist,
-      Icons.nature,
-      Icons.park,
-      Icons.yard,
-      Icons.filter_vintage,
-      Icons.energy_savings_leaf,
-      Icons.spa,
-    ];
-    return _Leaf(
-      x: math.Random().nextDouble(),
-      y: math.Random().nextDouble() * -2.0,
-      speed: math.Random().nextDouble() * 0.002 + 0.001,
-      size:
-          math.Random().nextDouble() * 40 + 45, 
-      rotation: math.Random().nextDouble() * 2 * math.pi,
-      initialProgress: math.Random().nextDouble(),
-      icon: leafIcons[math.Random().nextInt(leafIcons.length)],
-    );
-  });
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOutBack),
-    );
-    _opacityAnimation = Tween<double>(
-      begin: 0.6,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-  @override
-  Widget build(BuildContext context) {
-    final bgColor = widget.isDarkMode
-        ? const Color(0xFF0A0A0A)
-        : const Color(0xFFFAF7F2);
-    final textColor = widget.isDarkMode ? Colors.greenAccent : Colors.green;
-    return Scaffold(
-      backgroundColor: bgColor,
-      body: Stack(
-        children: [
-          ..._leaves.map(
-            (leaf) => _FallingLeaf(
-              key: ValueKey('leaf_${leaf.hashCode}'),
-              leaf: leaf,
-              color: textColor,
-            ),
-          ),
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, child) {
-                    return Transform.scale(
-                      scale: _scaleAnimation.value,
-                      child: Opacity(
-                        opacity: _opacityAnimation.value,
-                        child: Container(
-                          width: 150,
-                          height: 150,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: textColor.withValues(alpha: 0.3),
-                                blurRadius: 30,
-                                spreadRadius: 10,
-                              ),
-                            ],
-                          ),
-                          child: ClipOval(
-                            child: Image.asset(
-                              'assets/logo.png',
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Icon(Icons.eco, size: 80, color: textColor),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 40),
-                Text(
-                  "PLANTGUARD PRO",
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 4,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  "IA Real-Time & IoT",
-                  style: TextStyle(
-                    color: textColor.withValues(alpha: 0.6),
-                    fontSize: 12,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 50),
-                SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(textColor),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-class _Leaf {
-  double x;
-  double y;
-  double speed;
-  double size;
-  double rotation;
-  double initialProgress;
-  IconData icon;
-  _Leaf({
-    required this.x,
-    required this.y,
-    required this.speed,
-    required this.size,
-    required this.rotation,
-    required this.initialProgress,
-    required this.icon,
-  });
-}
-class _FallingLeaf extends StatefulWidget {
-  final _Leaf leaf;
-  final Color color;
-  const _FallingLeaf({
-    required this.leaf,
-    required this.color,
-    required ValueKey<String> key,
-  });
-  @override
-  State<_FallingLeaf> createState() => _FallingLeafState();
-}
-class _FallingLeafState extends State<_FallingLeaf>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _leafController;
-  @override
-  void initState() {
-    super.initState();
-    _leafController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 12),
-    )..repeat();
-  }
-  @override
-  void dispose() {
-    _leafController.dispose();
-    super.dispose();
-  }
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _leafController,
-        builder: (context, child) {
-          double progress =
-              (_leafController.value + widget.leaf.initialProgress) % 1.0;
-          double yPos = (widget.leaf.y + (progress * 2.5)) % 1.5;
-          double screenY = (yPos - 0.25) * MediaQuery.of(context).size.height;
-          double xOffset =
-              math.sin((progress * 2 * math.pi) + widget.leaf.rotation) * 30;
-          double screenX =
-              (widget.leaf.x * MediaQuery.of(context).size.width) + xOffset;
-          return Transform.translate(
-            offset: Offset(screenX, screenY),
-            child: Transform.rotate(
-              angle:
-                  widget.leaf.rotation +
-                  (progress * 2 * math.pi * 0.5), 
-              child: Icon(
-                widget.leaf.icon,
-                size: widget.leaf.size,
-                color: widget.color.withValues(alpha: 0.25),
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 }
 class MainTabController extends StatefulWidget {
   final VoidCallback onThemeToggle;
   final bool isDarkMode;
+  final Color lightColor;
+  final Color darkColor;
+  final double cardRadius;
+  final double borderWidth;
+  final bool solidAppBar;
+  final double fontSizeDelta;
+  final bool glassCards;
+  final bool glowEffects;
+  final Function({
+    Color? lightColor,
+    Color? darkColor,
+    double? radius,
+    double? borderWidth,
+    bool? solidAppBar,
+    double? fontSize,
+    bool? glassCards,
+    bool? glowEffects,
+  })
+  onSettingsChange;
   const MainTabController({
     super.key,
     required this.onThemeToggle,
     required this.isDarkMode,
+    required this.lightColor,
+    required this.darkColor,
+    required this.cardRadius,
+    required this.borderWidth,
+    required this.solidAppBar,
+    required this.fontSizeDelta,
+    required this.glassCards,
+    required this.glowEffects,
+    required this.onSettingsChange,
   });
   @override
   State<MainTabController> createState() => _MainTabControllerState();
@@ -374,68 +288,83 @@ class _MainTabControllerState extends State<MainTabController> {
   bool useRemoteSsl = false;
   String _stripProtocol(String input) {
     String stripped = input.trim();
-    if (stripped.startsWith('http://')) stripped = stripped.substring(7);
-    if (stripped.startsWith('https://')) stripped = stripped.substring(8);
-    if (stripped.startsWith('ws://')) stripped = stripped.substring(5);
-    if (stripped.startsWith('wss://')) stripped = stripped.substring(6);
-    if (stripped.endsWith('/'))
+    if (stripped.startsWith('http:
+    if (stripped.startsWith('https:
+    if (stripped.startsWith('ws:
+    if (stripped.startsWith('wss:
+    if (stripped.endsWith('/')) {
       stripped = stripped.substring(0, stripped.length - 1);
+    }
     return stripped;
   }
   String get _effectiveHost => (isCloudMode && remoteHost.isNotEmpty)
       ? _stripProtocol(remoteHost)
       : _stripProtocol(raspIP);
   String get _videoUrl {
-    if (isSimulationMode) return "http://127.0.0.1:5000/video_feed";
     final host = _effectiveHost;
     if (host.isEmpty) return "";
+    if (host.contains(':')) {
+      final protocol = isCloudMode && useRemoteSsl ? "https" : "http";
+      return "$protocol:
+    }
     if (isCloudMode) {
       final protocol = useRemoteSsl ? "https" : "http";
       bool isDomain =
           host.contains('.') && !RegExp(r'^[0-9.]+$').hasMatch(host);
       if (isDomain) {
-        return "$protocol://$host/video_feed";
+        return "$protocol:
       }
-      return "$protocol://$host:$videoPort/video_feed";
+      return "$protocol:
     }
-    return "http://$host:5000/video_feed";
+    return "http:
   }
   String get _captureUrl {
-    if (isSimulationMode) return "http://127.0.0.1:5000/capture";
     final host = _effectiveHost;
     if (host.isEmpty) return "";
+    if (host.contains(':')) {
+      final protocol = isCloudMode && useRemoteSsl ? "https" : "http";
+      return "$protocol:
+    }
     if (isCloudMode) {
       final protocol = useRemoteSsl ? "https" : "http";
       bool isDomain =
           host.contains('.') && !RegExp(r'^[0-9.]+$').hasMatch(host);
       if (isDomain) {
-        return "$protocol://$host/capture";
+        return "$protocol:
       }
-      return "$protocol://$host:$videoPort/capture";
+      return "$protocol:
     }
-    return "http://$host:5000/capture";
+    return "http:
   }
   String get _wsUrl {
-    if (isSimulationMode) return "ws://127.0.0.1:8765";
     final host = _effectiveHost;
     if (host.isEmpty) return "";
+    if (host.contains(':')) {
+      final protocol = isCloudMode && useRemoteSsl ? "wss" : "ws";
+      return "$protocol:
+    }
     if (isCloudMode) {
       final protocol = useRemoteSsl ? "wss" : "ws";
       bool isDomain =
           host.contains('.') && !RegExp(r'^[0-9.]+$').hasMatch(host);
       if (isDomain) {
-        return "$protocol://$host";
+        return "$protocol:
       }
-      return "$protocol://$host:$wsPort";
+      return "$protocol:
     }
-    return "ws://$host:8765";
+    return "ws:
   }
   bool isAiEnabled = true;
   bool isSimulationMode = false;
+  bool isTrainingAi = false;
+  double aiTrainingProgress = 0.0;
+  String aiTrainingStatus = "";
+  Process? _aiTrainingProcess;
   bool isVacationMode = false;
-  bool isNightModeEnabled = false; 
+  bool isEcoModeEnabled = false;
+  bool _ecoModeManualOverride = false;
   Timer? _simulationTimer;
-  Timer? _voiceTimer; 
+  Timer? _voiceTimer;
   bool isCloudMode = false;
   MqttServerClient? mqttClient;
   String mqttBroker = "broker.hivemq.com";
@@ -443,14 +372,14 @@ class _MainTabControllerState extends State<MainTabController> {
   String mqttTopicPrefix = "plantguard_pro/device_ref_9921";
   WebSocketChannel? _wsChannel;
   bool isWebSocketConnected = false;
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
   NT4Topic? pumpPub;
   NT4Topic? phPub;
   NT4Topic? brightnessPub;
   NT4Topic? targetFpsPub;
-  NT4Topic? aiEnablePub; 
-  NT4Topic? nightModePub; 
+  NT4Topic? aiEnablePub;
+  NT4Topic? ecoModePub;
+  NT4Topic? configPub;
+  NT4Topic? cmdPub;
   String plantStatus = "Iniciando...";
   bool hasDisease = false;
   double confidence = 0.0;
@@ -483,6 +412,16 @@ class _MainTabControllerState extends State<MainTabController> {
     'water_level': '%',
     'battery': '%',
   };
+  Map<String, Map<String, dynamic>> sensorConfigs = {};
+  final Map<String, List<String>> _sensorSlotKeys = {
+    'luminosidade': ['l1', 'l2'],
+    'temperatura': ['t1', 't2'],
+    'umidade': ['u1', 'u2'],
+    'ph': ['p1', 'p2'],
+    'eletrocondutividade': ['ec'],
+    'nivel_agua': ['water_level'],
+    'bateria': ['battery'],
+  };
   Map<String, List<FlSpot>> histories = {
     'u1': [],
     'u2': [],
@@ -501,6 +440,10 @@ class _MainTabControllerState extends State<MainTabController> {
   final Map<String, DateTime> _lastNoiseNotification = {};
   final List<List<double>> _irrigationHistory = [];
   bool isFirstAidMode = false;
+  bool _isCapturingPhoto = false;
+  bool _isNotificationsExpanded = true;
+  final List<Map<String, String>> _logs = [];
+  String _systemState = "ESTÁVEL";
   final Map<String, DateTime> _lastObstructedNotification = {};
   String activeGraphKey = 'u1';
   bool pumpState = false;
@@ -526,11 +469,16 @@ class _MainTabControllerState extends State<MainTabController> {
     'irrigation_history',
     'irrigation_control',
     'maintenance',
-    'ph_calibration',
     'camera',
     'diary',
   ];
-  List<String> settingsOrder = ['funcionalidades', 'conexao', 'simulacao'];
+  List<String> settingsOrder = [
+    'personalizacao',
+    'funcionalidades',
+    'conexao',
+    'simulacao',
+  ];
+  List<String> personalizacaoOrder = ['graphic_elements', 'font_style'];
   List<String> funcionalidadesOrder = [
     'notifications',
     'night_mode',
@@ -540,6 +488,7 @@ class _MainTabControllerState extends State<MainTabController> {
     'vacation_mode',
     'event_recording',
     'ai_enabled',
+    'treinar_ia',
   ];
   List<String> conexaoOrder = [
     'access_guide',
@@ -557,13 +506,14 @@ class _MainTabControllerState extends State<MainTabController> {
   bool isEventRecordingEnabled = false;
   bool isNotificationsEnabled = true;
   Map<String, Map<String, bool>> notificationSettings = {
-    'sensor_noise': {'push': true, 'log': true}, 
-    'sensor_error': {'push': true, 'log': true}, 
-    'connectivity': {'push': true, 'log': true}, 
-    'plant_health': {'push': true, 'log': true}, 
-    'gamification': {'push': false, 'log': true}, 
-    'actions': {'push': false, 'log': true}, 
-    'system': {'push': false, 'log': true}, 
+    'sensor_noise': {'push': true, 'log': true},
+    'sensor_error': {'push': true, 'log': true},
+    'connectivity': {'push': true, 'log': true},
+    'plant_health': {'push': true, 'log': true},
+    'gamification': {'push': false, 'log': true},
+    'actions': {'push': false, 'log': true},
+    'system': {'push': false, 'log': true},
+    'sensor_replacement': {'push': true, 'log': true},
   };
   bool isDndEnabled = false;
   TimeOfDay dndStartTime = const TimeOfDay(hour: 22, minute: 0);
@@ -577,6 +527,7 @@ class _MainTabControllerState extends State<MainTabController> {
     'gamification': 'Conquistas e Nível',
     'actions': 'Ações de Hardware (Bomba/Foto)',
     'system': 'Sistema e Manutenção',
+    'sensor_replacement': 'Troca de Sensor Necessária',
   };
   bool isMaintenanceMode = false;
   int maintenanceRemainingSeconds = 0;
@@ -625,74 +576,39 @@ class _MainTabControllerState extends State<MainTabController> {
   bool _isListening = false;
   String _lastWords = "";
   bool isVoiceAssistantEnabled = false;
-  bool isVoiceAudioResponseEnabled = true; 
+  bool isVoiceAudioResponseEnabled = true;
   @override
   void initState() {
     super.initState();
     _initSpeech();
-    _initDatabase();
-    _startDiscovery();
-    _initNotifications();
-    _ipController = TextEditingController(text: raspIP);
-    _remoteHostController = TextEditingController(text: remoteHost);
-    _loadSettings().then((_) {
-      _reconnect();
+    _initDatabase().then((_) {
+      _startDiscovery();
+      _ipController = TextEditingController(text: raspIP);
+      _remoteHostController = TextEditingController(text: remoteHost);
+      _loadSettings().then((_) {
+        _reconnect();
+        try {
+          final provider = Provider.of<AppProvider>(context, listen: false);
+          provider.loadFromDb();
+        } catch (e) {
+          debugPrint("Provider: Erro na sincronização inicial: $e");
+        }
+      });
     });
   }
   Database? _database;
   Future<void> _initDatabase() async {
-    String path;
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      final directory = await getApplicationSupportDirectory();
-      path = p.join(directory.path, 'sensor_history_v6.db');
-    } else {
-      final dbPath = await getDatabasesPath();
-      path = p.join(dbPath, 'sensor_history.db');
+    try {
+      print("DB: Migrando para DatabaseService unificado...");
+      _database = await DatabaseService().database;
+      print("DB: Banco de dados unificado e inicializado com sucesso!");
+      await _loadHistoryFromDb();
+      await _loadDiaryFromDb();
+      await _loadEventsFromDb();
+    } catch (e) {
+      print("DB ERROR: Falha na inicialização unificada: $e");
+      _addAlert("Erro ao iniciar banco de dados: $e");
     }
-    print("DB: Inicializando em $path");
-    _database = await openDatabase(
-      path,
-      version: 7,
-      onCreate: (db, version) async {
-        await db.execute(
-          'CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT, sensor_key TEXT, value REAL, timestamp INTEGER)',
-        );
-        await db.execute(
-          'CREATE TABLE diary(id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT, timestamp INTEGER, is_reminder INTEGER DEFAULT 0, reminder_time INTEGER, image_path TEXT)',
-        );
-        await db.execute(
-          'CREATE TABLE events(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, path TEXT, timestamp INTEGER)',
-        );
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute(
-            'CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, path TEXT, timestamp INTEGER)',
-          );
-        }
-        if (oldVersion < 6) {
-          try {
-            await db.execute(
-              'ALTER TABLE diary ADD COLUMN is_reminder INTEGER DEFAULT 0',
-            );
-          } catch (e) {}
-          try {
-            await db.execute(
-              'ALTER TABLE diary ADD COLUMN reminder_time INTEGER',
-            );
-          } catch (e) {}
-        }
-        if (oldVersion < 7) {
-          try {
-            await db.execute('ALTER TABLE diary ADD COLUMN image_path TEXT');
-          } catch (e) {}
-        }
-      },
-    );
-    print("DB: Banco de dados inicializado na versão 7");
-    await _loadHistoryFromDb();
-    await _loadDiaryFromDb();
-    await _loadEventsFromDb();
   }
   Future<void> _loadHistoryFromDb() async {
     if (_database == null) return;
@@ -724,6 +640,11 @@ class _MainTabControllerState extends State<MainTabController> {
       setState(() {
         diaryNotes = List.from(maps);
       });
+      try {
+        final provider = Provider.of<AppProvider>(context, listen: false);
+        provider.setDiaryNotes(maps);
+      } catch (e) {
+      }
     } catch (e) {
       print("DB: Erro ao carregar diário: $e");
       _addAlert("Erro ao carregar diário: $e");
@@ -746,22 +667,14 @@ class _MainTabControllerState extends State<MainTabController> {
     DateTime? reminderTime,
     String? imagePath,
   }) async {
-    if (_database == null) {
-      _addAlert("ERRO: Banco de dados não inicializado.");
-      return;
-    }
     try {
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final id = await _database!.insert('diary', {
-        'note': note,
-        'timestamp': timestamp,
-        'is_reminder': isReminder ? 1 : 0,
-        'reminder_time': reminderTime?.millisecondsSinceEpoch,
-        'image_path': imagePath,
-      });
-      if (isReminder && reminderTime != null) {
-        await _scheduleReminderNotification(id, note, reminderTime);
-      }
+      final provider = Provider.of<AppProvider>(context, listen: false);
+      await provider.addDiaryNote(
+        note,
+        isReminder: isReminder,
+        reminderTime: reminderTime,
+        imagePath: imagePath,
+      );
       await _loadDiaryFromDb();
       _addAlert(
         isReminder
@@ -771,6 +684,7 @@ class _MainTabControllerState extends State<MainTabController> {
                   : "Anotação salva com sucesso"),
       );
     } catch (e) {
+      debugPrint("DIARIO: Erro fatal ao salvar: $e");
       _addAlert("Erro ao salvar no diário: $e");
     }
   }
@@ -779,25 +693,24 @@ class _MainTabControllerState extends State<MainTabController> {
     String note,
     DateTime time,
   ) async {
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails(
-          'plant_reminders',
-          'Lembretes de Cultivo',
-          importance: Importance.max,
-          priority: Priority.high,
-        );
-    const NotificationDetails platformChannelSpecifics = NotificationDetails(
-      android: androidPlatformChannelSpecifics,
-    );
     final now = DateTime.now();
     if (time.isAfter(now)) {
       final delay = time.difference(now);
       Timer(delay, () async {
-        await flutterLocalNotificationsPlugin.show(
-          id,
-          "Lembrete de Cultivo",
-          note,
-          platformChannelSpecifics,
+        if (!isNotificationsEnabled) {
+          debugPrint("LEMBRETE: Bloqueado (Notificações Desativadas)");
+          return;
+        }
+        if (isDndEnabled && _isCurrentTimeInDndRange()) {
+          debugPrint("LEMBRETE: Bloqueado (Modo Não Perturbe Ativo)");
+          return;
+        }
+        await NotificationService().showNotification(
+          id: id,
+          title: "Lembrete de Cultivo",
+          body: note,
+          channelId: 'plant_reminders',
+          channelName: 'Lembretes de Cultivo',
         );
       });
     }
@@ -840,11 +753,13 @@ class _MainTabControllerState extends State<MainTabController> {
     final discovery = await startDiscovery('_http._tcp');
     discovery.addListener(() {
       for (final service in discovery.services) {
-        if (service.name != null && service.name!.contains('raspberry')) {
+        if (service.name != null &&
+            (service.name!.toLowerCase().contains('raspberry') ||
+                service.name!.toLowerCase().contains('plantguard'))) {
           final host = service.host;
           if (host != null && host != raspIP) {
             _addAlert(
-              "Raspberry encontrada via mDNS: $host",
+              "Raspberry encontrada: $host (Porta: ${service.port})",
               category: 'connectivity',
             );
             setState(() {
@@ -859,61 +774,56 @@ class _MainTabControllerState extends State<MainTabController> {
       }
     });
   }
-  bool _isNotificationsInitialized = false;
-  Future<void> _initNotifications() async {
-    try {
-      const AndroidInitializationSettings initializationSettingsAndroid =
-          AndroidInitializationSettings('@mipmap/ic_launcher');
-      const InitializationSettings initializationSettings =
-          InitializationSettings(android: initializationSettingsAndroid);
-      await flutterLocalNotificationsPlugin.initialize(initializationSettings);
-      _isNotificationsInitialized = true;
-      print("APP: Notificações inicializadas com sucesso.");
-    } catch (e) {
-      print("APP: Erro ao inicializar notificações: $e");
-    }
-  }
   Future<void> _showNotification(
     String title,
     String body, {
     String category = 'system',
     bool isCritical = false,
   }) async {
-    if (!isNotificationsEnabled) return;
-    if (!_isNotificationsInitialized) {
-      print("APP: Notificações ainda não inicializadas. Pulando.");
+    if (!isNotificationsEnabled && !isCritical) {
+      debugPrint("NOTIF: Bloqueada (Configuração Global Desativada)");
       return;
     }
-    final bool isPushEnabled = notificationSettings[category]?['push'] ?? true;
-    if (!isPushEnabled) return;
-    if (isDndEnabled) {
+    final pushEnabled = notificationSettings[category]?['push'] ?? true;
+    if (!pushEnabled && !isCritical) {
+      debugPrint(
+        "NOTIF: Bloqueada pelo filtro do usuário (Categoria: $category, Push: $pushEnabled)",
+      );
+      return;
+    }
+    if (isDndEnabled && _isCurrentTimeInDndRange()) {
       if (isCritical && bypassDndForCritical) {
-      } else if (_isCurrentTimeInDndRange()) {
-        print("APP: Notificação silenciada pelo Modo DND ($category)");
+        debugPrint("NOTIF: Permitida (Crítica ignorando DND)");
+      } else {
+        debugPrint("NOTIF: Bloqueada (Modo Não Perturbe Ativo)");
         return;
       }
     }
-    try {
-      const AndroidNotificationDetails androidPlatformChannelSpecifics =
-          AndroidNotificationDetails(
-            'plant_health_alerts',
-            'Alertas de Saúde',
-            importance: Importance.max,
-            priority: Priority.high,
-            showWhen: true,
-          );
-      const NotificationDetails platformChannelSpecifics = NotificationDetails(
-        android: androidPlatformChannelSpecifics,
-      );
-      await flutterLocalNotificationsPlugin.show(
-        math.Random().nextInt(1000),
-        title,
-        body,
-        platformChannelSpecifics,
-      );
-    } catch (e) {
-      print("APP: Erro ao mostrar notificação: $e");
+    final notificationService = NotificationService();
+    String channelId = 'plant_health_alerts';
+    String channelName = 'Alertas de Saúde';
+    Importance importance = Importance.max;
+    Priority priority = Priority.high;
+    if (title.contains("Treinando") ||
+        title.contains("Treinamento IA iniciado")) {
+      channelId = 'ai_training_channel';
+      channelName = 'Treinamento de IA';
+      importance = Importance.low;
+      priority = Priority.low;
     }
+    await notificationService.showNotification(
+      id: title.contains("Treinando") ? 999 : math.Random().nextInt(1000),
+      title: title,
+      body: body,
+      channelId: channelId,
+      channelName: channelName,
+      importance: importance,
+      priority: priority,
+      showProgress: title.contains("Treinando"),
+      maxProgress: 100,
+      progress: (aiTrainingProgress * 100).toInt(),
+      onlyAlertOnce: title.contains("Treinando"),
+    );
   }
   bool _isCurrentTimeInDndRange() {
     final now = DateTime.now();
@@ -929,6 +839,7 @@ class _MainTabControllerState extends State<MainTabController> {
   }
   void _reconnect() {
     print("APP: Tentando reconectar ao Host: $_effectiveHost");
+    _addAlert("Tentando reconectar ao sistema...", category: 'connectivity');
     _setupWebSockets();
     if (isCloudMode) {
       _setupMQTT();
@@ -951,10 +862,8 @@ class _MainTabControllerState extends State<MainTabController> {
               isWebSocketConnected = true;
               data.forEach((key, val) {
                 if (sensorData.containsKey(key)) {
-                  final double value = (val as num).toDouble();
-                  sensorData[key] = value;
-                  lastSensorUpdate[key] = DateTime.now();
-                  _updateHistory(key, value);
+                  _updateSensor(key, (val as num).toDouble());
+                  _updateHistory(key, (val).toDouble());
                 }
               });
             });
@@ -970,10 +879,20 @@ class _MainTabControllerState extends State<MainTabController> {
         },
         onError: (e) {
           if (mounted) setState(() => isWebSocketConnected = false);
-          debugPrint("WS Stream Error: $e");
+          String errorMsg = e.toString();
+          if (errorMsg.contains("errno = 1225")) {
+            errorMsg =
+                "Conexão Recusada pela Raspberry em $wsUrl. Verifique se o script Python está rodando na Pi.";
+          }
+          debugPrint("WS Stream Error: $errorMsg");
           if (isCloudMode) {
             _addAlert(
               "Dica: WebSockets podem falhar no 4G/Tunnels. Use o MQTT para dados.",
+              category: 'connectivity',
+            );
+          } else {
+            _addAlert(
+              "Erro de Dados (Local): $errorMsg",
               category: 'connectivity',
             );
           }
@@ -989,6 +908,28 @@ class _MainTabControllerState extends State<MainTabController> {
       }
     }
   }
+  void _updateSensor(String key, double val) {
+    if (!mounted) return;
+    setState(() {
+      final processed = _processSensorValue(key, val);
+      sensorData[key] = processed;
+      lastSensorUpdate[key] = DateTime.now();
+      if (key == 'battery' &&
+          val <= 10.0 &&
+          !isEcoModeEnabled &&
+          !_ecoModeManualOverride) {
+        isEcoModeEnabled = true;
+        _sendCommand('eco_mode', true);
+        _addAlert(
+          "BATERIA CRÍTICA: Modo Econômico ativado automaticamente.",
+          category: 'system',
+        );
+      }
+      if (key == 'battery' && val > 10.0) {
+        _ecoModeManualOverride = false;
+      }
+    });
+  }
   double _processSensorValue(String key, double newValue) {
     final String peerKey = _getPeerSensorKey(key);
     double correctedValue = newValue;
@@ -996,8 +937,8 @@ class _MainTabControllerState extends State<MainTabController> {
       final double peerValue = sensorData[peerKey]!;
       final double diff = (newValue - peerValue).abs();
       double tolerance = 15.0;
-      if (key.startsWith('t')) tolerance = 4.0; 
-      if (key.startsWith('p')) tolerance = 0.8; 
+      if (key.startsWith('t')) tolerance = 4.0;
+      if (key.startsWith('p')) tolerance = 0.8;
       if (diff > tolerance) {
         if (newValue <= 0.1 && peerValue > 0.1) {
           correctedValue = peerValue;
@@ -1153,10 +1094,10 @@ class _MainTabControllerState extends State<MainTabController> {
         if (difference == 1) {
           plantStreak++;
         } else if (difference > 1) {
-          plantStreak = 1; 
+          plantStreak = 1;
         }
       } else {
-        plantStreak = 1; 
+        plantStreak = 1;
       }
       await prefs.setString('last_perfect_health_date', todayStr);
       await prefs.setInt('plant_streak', plantStreak);
@@ -1387,11 +1328,15 @@ class _MainTabControllerState extends State<MainTabController> {
     }
   }
   void _sendCommand(String topicSuffix, dynamic value) {
+    dynamic payload = value;
+    if (value is bool) {
+      payload = value ? "1" : "0";
+    }
     if (isCloudMode) {
       if (mqttClient?.connectionStatus?.state ==
           MqttConnectionState.connected) {
         final builder = MqttClientPayloadBuilder();
-        builder.addString(value.toString());
+        builder.addString(payload.toString());
         mqttClient!.publishMessage(
           "$mqttTopicPrefix/cmd/$topicSuffix",
           MqttQos.atLeastOnce,
@@ -1400,17 +1345,21 @@ class _MainTabControllerState extends State<MainTabController> {
       }
     } else {
       if (topicSuffix == 'pump' && pumpPub != null) {
-        client.addSample(pumpPub!, value);
+        client.addSample(pumpPub!, payload);
       } else if (topicSuffix == 'ph' && phPub != null) {
-        client.addSample(phPub!, value);
+        client.addSample(phPub!, payload);
       } else if (topicSuffix == 'brightness' && brightnessPub != null) {
-        client.addSample(brightnessPub!, value);
+        client.addSample(brightnessPub!, payload);
       } else if (topicSuffix == 'fps' && targetFpsPub != null) {
-        client.addSample(targetFpsPub!, value);
+        client.addSample(targetFpsPub!, payload);
       } else if (topicSuffix == 'ai_enable' && aiEnablePub != null) {
-        client.addSample(aiEnablePub!, value);
-      } else if (topicSuffix == 'night_mode' && nightModePub != null) {
-        client.addSample(nightModePub!, value);
+        client.addSample(aiEnablePub!, payload);
+      } else if (topicSuffix == 'eco_mode' && ecoModePub != null) {
+        client.addSample(ecoModePub!, payload);
+      } else if (topicSuffix == 'config' && configPub != null) {
+        client.addSample(configPub!, payload);
+      } else if (topicSuffix == 'cmd' && cmdPub != null) {
+        client.addSample(cmdPub!, payload);
       }
     }
   }
@@ -1428,9 +1377,11 @@ class _MainTabControllerState extends State<MainTabController> {
           SnackBar(
             content: Text("Foto salva em: Pictures/PlantGuard/$filename"),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 10),
             action: SnackBarAction(
-              label: "ABRIR",
-              onPressed: () => Share.shareXFiles([XFile(path)]),
+              label: "COMPARTILHAR",
+              onPressed: () =>
+                  Share.shareXFiles([XFile(path)], text: "Minha Planta"),
             ),
           ),
         );
@@ -1447,11 +1398,9 @@ class _MainTabControllerState extends State<MainTabController> {
     }
   }
   void _captureManualPhoto() async {
-    _addAlert("Solicitando foto à Raspberry Pi...", category: 'actions');
-    _sendCommand(
-      'take_photo',
-      'now',
-    ); 
+    if (_isCapturingPhoto) return;
+    setState(() => _isCapturingPhoto = true);
+    _addAlert("Iniciando captura de imagem...", category: 'actions');
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text("Capturando imagem...")));
@@ -1464,7 +1413,7 @@ class _MainTabControllerState extends State<MainTabController> {
               "User-Agent": "PlantGuardApp/1.0",
             },
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         final directory = await getApplicationDocumentsDirectory();
         final filename = 'plant_${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -1474,12 +1423,19 @@ class _MainTabControllerState extends State<MainTabController> {
         await _saveToGallery(file, filename);
       } else {
         _addAlert(
-          "Erro ao baixar foto: ${response.statusCode}",
+          "Erro ao baixar foto: ${response.statusCode}. Tentando comando via MQTT...",
           category: 'actions',
         );
+        _sendCommand('take_photo', 'now');
       }
     } catch (e) {
-      _addAlert("Erro de conexão: $e", category: 'actions');
+      _addAlert(
+        "Erro de conexão HTTP. Tentando comando via MQTT...",
+        category: 'actions',
+      );
+      _sendCommand('take_photo', 'now');
+    } finally {
+      if (mounted) setState(() => _isCapturingPhoto = false);
     }
   }
   void _runConsensusCalibration() {
@@ -1672,15 +1628,37 @@ class _MainTabControllerState extends State<MainTabController> {
     if (!isNotificationsEnabled) return;
     final bool isLogEnabled = notificationSettings[category]?['log'] ?? true;
     if (!isLogEnabled) return;
-    final time = DateTime.now();
+    final now = DateTime.now();
     final timestamp =
-        "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}";
-    _alerts.insert(0, {
-      'message': message,
-      'timestamp': timestamp,
-      'category': category,
+        "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}";
+    setState(() {
+      _alerts.insert(0, {
+        'message': message,
+        'timestamp': timestamp,
+        'category': category,
+      });
+      if (_alerts.length > 50) _alerts.removeLast();
+      _logs.insert(0, {
+        'msg': message,
+        'time': timestamp,
+        'category': category,
+      });
+      if (_logs.length > 100) _logs.removeLast();
+      if (category == 'plant_health' || category == 'sensor_error') {
+        _systemState = "ATENÇÃO";
+      } else if (message.toUpperCase().contains("ERRO") ||
+          message.toLowerCase().contains("falhou") ||
+          message.toLowerCase().contains("desconectado")) {
+        _systemState = "ERRO";
+      } else {
+        _systemState = "ESTÁVEL";
+      }
     });
-    if (_alerts.length > 30) _alerts.removeLast();
+    try {
+      final provider = Provider.of<AppProvider>(context, listen: false);
+      provider.addLog(message, category: category);
+    } catch (e) {
+    }
     _scheduleUiRefresh(visibleTabs: {0});
   }
   Future<void> _saveNotificationSettings() async {
@@ -1702,6 +1680,649 @@ class _MainTabControllerState extends State<MainTabController> {
       "${dndEndTime.hour}:${dndEndTime.minute}",
     );
     await prefs.setBool('bypass_dnd_critical', bypassDndForCritical);
+  }
+  String _defaultSensorNameForKey(String key) {
+    switch (key) {
+      case 'u1':
+        return "Umidade Solo 1";
+      case 'u2':
+        return "Umidade Solo 2";
+      case 'l1':
+        return "Luz Ambiente 1";
+      case 'l2':
+        return "Luz Ambiente 2";
+      case 't1':
+        return "Temperatura 1";
+      case 't2':
+        return "Temperatura 2";
+      case 'p1':
+        return "Nível pH 1";
+      case 'p2':
+        return "Nível pH 2";
+      case 'ec':
+        return "Eletrocondutividade";
+      case 'water_level':
+        return "Nível de Água";
+      case 'battery':
+        return "Bateria";
+      default:
+        return "Sensor";
+    }
+  }
+  String _sensorTypeForKey(String key) {
+    if (key.startsWith('l')) return 'luminosidade';
+    if (key.startsWith('t')) return 'temperatura';
+    if (key.startsWith('u')) return 'umidade';
+    if (key.startsWith('p')) return 'ph';
+    if (key == 'ec') return 'eletrocondutividade';
+    if (key == 'water_level') return 'nivel_agua';
+    if (key == 'battery') return 'bateria';
+    return 'desconhecido';
+  }
+  String? _normalizeArduinoPin(String input) {
+    final raw = input.trim();
+    if (raw.isEmpty) return null;
+    final up = raw.toUpperCase();
+    final numMatch = RegExp(r'^\d{1,3}$').firstMatch(up);
+    if (numMatch != null) {
+      final n = int.tryParse(up);
+      if (n == null) return null;
+      if (n < 0 || n > 69) return null;
+      return n.toString();
+    }
+    final aMatch = RegExp(r'^A(\d{1,2})$').firstMatch(up);
+    if (aMatch != null) {
+      final n = int.tryParse(aMatch.group(1)!);
+      if (n == null) return null;
+      if (n < 0 || n > 15) return null;
+      return "A$n";
+    }
+    return null;
+  }
+  Map<String, Map<String, dynamic>> _buildDefaultSensorConfigs() {
+    final Map<String, Map<String, dynamic>> cfg = {};
+    for (final entry in _sensorSlotKeys.entries) {
+      for (final key in entry.value) {
+        cfg[key] = {
+          'enabled': false,
+          'name': _defaultSensorNameForKey(key),
+          'unit': sensorUnits[key] ?? "",
+          'type': entry.key,
+          'channel': null,
+        };
+      }
+    }
+    return cfg;
+  }
+  List<String> _enabledSensorKeys() {
+    final keys = sensorConfigs.entries
+        .where((e) => e.value['enabled'] == true)
+        .map((e) => e.key)
+        .where((k) => sensorData.containsKey(k))
+        .toList();
+    keys.sort();
+    return keys;
+  }
+  Future<void> _saveSensorConfigs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('sensor_configs_v1', jsonEncode(sensorConfigs));
+    _syncSensorConfigsWithArduino();
+  }
+  void _syncSensorConfigsWithArduino() {
+    sensorConfigs.forEach((key, config) {
+      if (config['enabled'] == true && config['channel'] != null) {
+        final Map<String, dynamic> cfgMsg = {
+          'cfg': {'id': key, 'pin': config['channel'], 'enabled': true},
+        };
+        _sendCommand('config', jsonEncode(cfgMsg));
+      }
+    });
+  }
+  void _applySensorUnitsFromConfigs() {
+    for (final key in sensorUnits.keys) {
+      final unit = sensorConfigs[key]?['unit'];
+      if (unit is String) {
+        sensorUnits[key] = unit;
+      }
+    }
+  }
+  Future<void> _showSensorManager() async {
+    final isDark = widget.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final enabledKeys = _enabledSensorKeys();
+          return AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+            title: Row(
+              children: [
+                const Icon(Icons.sensors, color: Colors.blueAccent),
+                const SizedBox(width: 10),
+                Text("Configurar Sensores", style: TextStyle(color: textColor)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    enabledKeys.isEmpty
+                        ? "Nenhum sensor configurado."
+                        : "${enabledKeys.length} sensores configurados.",
+                    style: TextStyle(color: subTextColor, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: enabledKeys.map((key) {
+                        final cfg = sensorConfigs[key] ?? {};
+                        final name = (cfg['name'] as String?) ?? key;
+                        final unit = (cfg['unit'] as String?) ?? "";
+                        final type =
+                            (cfg['type'] as String?) ?? _sensorTypeForKey(key);
+                        final channel = cfg['channel'];
+                        return ListTile(
+                          leading: Icon(
+                            _getSensorConfig(key).icon,
+                            color: _getSensorConfig(key).color,
+                          ),
+                          title: Text(name, style: TextStyle(color: textColor)),
+                          subtitle: Text(
+                            "Tipo: $type | Unidade: $unit | Canal: ${channel ?? '-'} | ID: $key",
+                            style: TextStyle(color: subTextColor, fontSize: 11),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit, size: 18),
+                                onPressed: () async {
+                                  await _showSensorEditor(existingKey: key);
+                                  setDialogState(() {});
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                  color: Colors.redAccent,
+                                ),
+                                onPressed: () async {
+                                  if (!mounted) return;
+                                  setState(() {
+                                    sensorConfigs[key]?['enabled'] = false;
+                                  });
+                                  _applySensorUnitsFromConfigs();
+                                  await _saveSensorConfigs();
+                                  setDialogState(() {});
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("FECHAR"),
+              ),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  await _showSensorEditor();
+                  setDialogState(() {});
+                },
+                icon: const Icon(Icons.add),
+                label: const Text("ADICIONAR"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+  Future<void> _showSensorEditor({String? existingKey}) async {
+    final isEditing = existingKey != null;
+    final isDark = widget.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    String selectedType = isEditing
+        ? ((sensorConfigs[existingKey]!['type'] as String?) ??
+              _sensorTypeForKey(existingKey))
+        : _sensorSlotKeys.keys.first;
+    List<String> availableSlots(String type) {
+      final slots = _sensorSlotKeys[type] ?? [];
+      if (isEditing) return [existingKey];
+      return slots.where((k) => sensorConfigs[k]?['enabled'] != true).toList();
+    }
+    String? selectedKey = isEditing
+        ? existingKey
+        : (availableSlots(selectedType).isNotEmpty
+              ? availableSlots(selectedType).first
+              : null);
+    final cfg = selectedKey != null ? (sensorConfigs[selectedKey] ?? {}) : {};
+    final nameController = TextEditingController(
+      text: (cfg['name'] as String?) ?? "",
+    );
+    final unitController = TextEditingController(
+      text: (cfg['unit'] as String?) ?? "",
+    );
+    final channelController = TextEditingController(
+      text: cfg['channel'] != null ? cfg['channel'].toString() : "",
+    );
+    String? pinErrorText;
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final slots = availableSlots(selectedType);
+          if (!isEditing && selectedKey == null && slots.isNotEmpty) {
+            selectedKey = slots.first;
+          }
+          return AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+            title: Text(
+              isEditing ? "Editar Sensor" : "Adicionar Sensor",
+              style: TextStyle(color: textColor),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedType,
+                    decoration: const InputDecoration(
+                      labelText: "Tipo",
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _sensorSlotKeys.keys
+                        .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                        .toList(),
+                    onChanged: isEditing
+                        ? null
+                        : (v) {
+                            if (v == null) return;
+                            setDialogState(() {
+                              selectedType = v;
+                              final newSlots = availableSlots(selectedType);
+                              selectedKey = newSlots.isNotEmpty
+                                  ? newSlots.first
+                                  : null;
+                              final newCfg = selectedKey != null
+                                  ? (sensorConfigs[selectedKey] ?? {})
+                                  : {};
+                              nameController.text =
+                                  (newCfg['name'] as String?) ??
+                                  (selectedKey != null
+                                      ? _defaultSensorNameForKey(selectedKey!)
+                                      : "");
+                              unitController.text =
+                                  (newCfg['unit'] as String?) ??
+                                  (selectedKey != null
+                                      ? (sensorUnits[selectedKey!] ?? "")
+                                      : "");
+                              channelController.text = newCfg['channel'] != null
+                                  ? newCfg['channel'].toString()
+                                  : "";
+                            });
+                          },
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedKey,
+                    decoration: const InputDecoration(
+                      labelText: "Slot",
+                      border: OutlineInputBorder(),
+                    ),
+                    items: slots
+                        .map((k) => DropdownMenuItem(value: k, child: Text(k)))
+                        .toList(),
+                    onChanged: isEditing
+                        ? null
+                        : (v) {
+                            if (v == null) return;
+                            setDialogState(() {
+                              selectedKey = v;
+                              nameController.text = _defaultSensorNameForKey(v);
+                              unitController.text = sensorUnits[v] ?? "";
+                              channelController.text = "";
+                            });
+                          },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: "Nome",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: unitController,
+                    decoration: const InputDecoration(
+                      labelText: "Unidade",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: channelController,
+                    keyboardType: TextInputType.text,
+                    onChanged: (_) {
+                      if (pinErrorText != null) {
+                        setDialogState(() {
+                          pinErrorText = null;
+                        });
+                      }
+                    },
+                    decoration: InputDecoration(
+                      labelText: "Pino Arduino",
+                      border: const OutlineInputBorder(),
+                      errorText: pinErrorText,
+                      helperText: "Ex: 2, 13, A0",
+                    ),
+                  ),
+                  if (!isEditing && slots.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        "Limite atingido para este tipo.",
+                        style: TextStyle(color: subTextColor, fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("CANCELAR"),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (selectedKey == null) return;
+                  final pinText = channelController.text.trim();
+                  if (pinText.isEmpty) {
+                    setDialogState(() {
+                      pinErrorText = "Campo obrigatório";
+                    });
+                    return;
+                  }
+                  final normalizedPin = _normalizeArduinoPin(pinText);
+                  if (normalizedPin == null) {
+                    setDialogState(() {
+                      pinErrorText = "Pino inválido";
+                    });
+                    return;
+                  }
+                  if (!mounted) return;
+                  setState(() {
+                    sensorConfigs[selectedKey!] = {
+                      'enabled': true,
+                      'name': nameController.text.trim().isEmpty
+                          ? _defaultSensorNameForKey(selectedKey!)
+                          : nameController.text.trim(),
+                      'unit': unitController.text.trim(),
+                      'type': selectedType,
+                      'channel': normalizedPin,
+                    };
+                    _applySensorUnitsFromConfigs();
+                  });
+                  await _saveSensorConfigs();
+                  if (_enabledSensorKeys().isNotEmpty &&
+                      !_enabledSensorKeys().contains(activeGraphKey)) {
+                    setState(() {
+                      activeGraphKey = _enabledSensorKeys().first;
+                    });
+                  }
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text("SALVAR"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+  Future<void> _showTrainAiDialog(BuildContext context) async {
+    final isDark = widget.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+        title: Row(
+          children: [
+            const Icon(Icons.smart_toy, color: Colors.purpleAccent),
+            const SizedBox(width: 10),
+            Text("Treinar Modelo IA", style: TextStyle(color: textColor)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.block, color: Colors.redAccent, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Funções que serão DESABILITADAS:",
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          softWrap: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 28),
+                    child: Text(
+                      "• Diagnóstico IA em tempo real\n"
+                      "• Atualizações de telemetria em tempo real\n"
+                      "• Processamento de vídeo pode ficar lento\n"
+                      "• Algumas notificações podem atrasar\n"
+                      "• Conexões MQTT/WebSocket instáveis",
+                      style: TextStyle(color: textColor, fontSize: 12),
+                      softWrap: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 15),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber,
+                    color: Colors.orange,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "O treinamento pode demorar horas dependendo do dataset e hardware.",
+                      style: TextStyle(color: textColor, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 15),
+            Text(
+              "Pré-requisitos:",
+              style: TextStyle(
+                color: textColor,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              "• Dataset na pasta 'dataset'\n"
+              "• Arquivo 'data.yaml' configurado\n"
+              "• Espaço em disco suficiente",
+              style: TextStyle(color: subTextColor, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CANCELAR"),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () {
+              Navigator.pop(context);
+              _confirmAndStartAiTraining();
+            },
+            icon: const Icon(Icons.warning),
+            label: const Text("ENTENDI, INICIAR"),
+          ),
+        ],
+      ),
+    );
+  }
+  Future<void> _confirmAndStartAiTraining() async {
+    final isDark = widget.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+        title: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.redAccent),
+            const SizedBox(width: 10),
+            Text("Confirmar Início", style: TextStyle(color: textColor)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "O treinamento é um processo DEMORADO e IRREVERSÍVEL que afetará o modelo de IA usado pelo aplicativo.",
+              style: TextStyle(color: textColor, fontSize: 13),
+            ),
+            const SizedBox(height: 15),
+            Text(
+              "Deseja realmente continuar?",
+              style: TextStyle(
+                color: textColor,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("NÃO, CANCELAR"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purpleAccent,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("SIM, TREINAR"),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      _startAiTraining();
+    }
+  }
+  Future<void> _startAiTraining() async {
+    if (isTrainingAi) return;
+    setState(() {
+      isTrainingAi = true;
+      aiTrainingProgress = 0.0;
+      aiTrainingStatus = "Iniciando treinamento...";
+    });
+    _showTrainingNotification(
+      "Treinamento IA iniciado",
+      "Preparando ambiente...",
+    );
+    try {
+      if (raspIP.isEmpty) {
+        throw Exception("Endereço IP da Raspberry não configurado.");
+      }
+      final trainingUrl = Uri.parse("http:
+      setState(() {
+        aiTrainingStatus = "Enviando comando para Raspberry...";
+      });
+      final response = await http
+          .post(trainingUrl, headers: {"Content-Type": "application/json"})
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        setState(() {
+          aiTrainingStatus = "Treinamento iniciado na Raspberry Pi!";
+          aiTrainingProgress = 0.5; 
+        });
+        _addAlert("Sucesso: O treinamento começou na sua Raspberry Pi!");
+      } else {
+        throw Exception("A Raspberry retornou erro ${response.statusCode}");
+      }
+    } catch (e) {
+      print("TRAIN ERROR: $e");
+      _addAlert("Erro ao iniciar treino na Raspberry: $e");
+      setState(() {
+        isTrainingAi = false;
+        aiTrainingStatus = "Falha na conexão";
+      });
+    } finally {
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            isTrainingAi = false;
+          });
+        }
+      });
+    }
+  }
+  void _showTrainingNotification(String title, String body) {
+    if (!isNotificationsEnabled) return;
+    _showNotification(title, body, category: 'system');
   }
   void _runAiRecommendation() {
     _updateHealthScore();
@@ -1833,6 +2454,12 @@ class _MainTabControllerState extends State<MainTabController> {
     final savedRemoteHost = prefs.getString('remote_host') ?? "";
     final savedVideoPort = prefs.getInt('video_port') ?? 5000;
     final savedWsPort = prefs.getInt('ws_port') ?? 8765;
+    int sanitizedVideoPort = savedVideoPort;
+    int sanitizedWsPort = savedWsPort;
+    if (sanitizedVideoPort < 1 || sanitizedVideoPort > 65535) {
+      sanitizedVideoPort = 5000;
+    }
+    if (sanitizedWsPort < 1 || sanitizedWsPort > 65535) sanitizedWsPort = 8765;
     final savedUseRemoteSsl = prefs.getBool('use_remote_ssl') == true;
     final savedPh = prefs.getDouble('ph_calib') ?? 0.5;
     final savedBrightness = prefs.getDouble('camera_brightness') ?? 0.0;
@@ -1857,7 +2484,7 @@ class _MainTabControllerState extends State<MainTabController> {
         prefs.getBool('is_voice_audio_response') ?? true;
     final savedNotificationsEnabled =
         prefs.getBool('is_notifications_enabled') == true;
-    final savedNightMode = prefs.getBool('is_night_mode_enabled') ?? false;
+    final savedEcoMode = prefs.getBool('is_eco_mode_enabled') ?? false;
     final savedStreak = prefs.getInt('plant_streak') ?? 0;
     final savedExp = prefs.getInt('plant_exp') ?? 0;
     final savedLevel = prefs.getInt('plant_level') ?? 1;
@@ -1867,6 +2494,7 @@ class _MainTabControllerState extends State<MainTabController> {
         [
           'video',
           'health',
+          'logs',
           'events',
           'hardware',
           'fps',
@@ -1889,18 +2517,22 @@ class _MainTabControllerState extends State<MainTabController> {
         ];
     final savedSettingsOrder =
         prefs.getStringList('settings_order') ??
-        ['funcionalidades', 'conexao', 'simulacao'];
+        ['personalizacao', 'funcionalidades', 'conexao', 'simulacao'];
+    final savedPersonalizacaoOrder =
+        prefs.getStringList('personalizacao_order') ??
+        ['graphic_elements', 'font_style'];
     final savedFuncionalidadesOrder =
         prefs.getStringList('funcionalidades_order') ??
         [
           'notifications',
-          'night_mode',
+          'eco_mode',
           'voice_assistant',
           'auto_irrigation',
           'hud_sensors',
           'vacation_mode',
           'event_recording',
           'ai_enabled',
+          'treinar_ia',
         ];
     final savedConexaoOrder =
         prefs.getStringList('conexao_order') ??
@@ -1923,6 +2555,7 @@ class _MainTabControllerState extends State<MainTabController> {
     final validKeys = [
       'video',
       'health',
+      'logs',
       'events',
       'hardware',
       'fps',
@@ -1931,6 +2564,9 @@ class _MainTabControllerState extends State<MainTabController> {
       'plant3d',
     ];
     savedDashboardOrder.removeWhere((k) => !validKeys.contains(k));
+    for (var k in validKeys) {
+      if (!savedDashboardOrder.contains(k)) savedDashboardOrder.add(k);
+    }
     final validAnalyticsKeys = ['chart', 'sensor_selector'];
     savedAnalyticsOrder.removeWhere((k) => !validAnalyticsKeys.contains(k));
     for (var k in validAnalyticsKeys) {
@@ -1949,20 +2585,35 @@ class _MainTabControllerState extends State<MainTabController> {
     for (var k in validControlKeys) {
       if (!savedControlOrder.contains(k)) savedControlOrder.add(k);
     }
-    final validSettingsKeys = ['funcionalidades', 'conexao', 'simulacao'];
+    final validSettingsKeys = [
+      'personalizacao',
+      'funcionalidades',
+      'conexao',
+      'simulacao',
+    ];
     savedSettingsOrder.removeWhere((k) => !validSettingsKeys.contains(k));
     for (var k in validSettingsKeys) {
       if (!savedSettingsOrder.contains(k)) savedSettingsOrder.add(k);
     }
+    final validPersonalizacaoKeys = ['graphic_elements', 'font_style'];
+    savedPersonalizacaoOrder.removeWhere(
+      (k) => !validPersonalizacaoKeys.contains(k),
+    );
+    for (var k in validPersonalizacaoKeys) {
+      if (!savedPersonalizacaoOrder.contains(k)) {
+        savedPersonalizacaoOrder.add(k);
+      }
+    }
     final validFuncionalidadesKeys = [
       'notifications',
-      'night_mode',
+      'eco_mode',
       'voice_assistant',
       'auto_irrigation',
       'hud_sensors',
       'vacation_mode',
       'event_recording',
       'ai_enabled',
+      'treinar_ia',
     ];
     savedFuncionalidadesOrder.removeWhere(
       (k) => !validFuncionalidadesKeys.contains(k),
@@ -2007,6 +2658,27 @@ class _MainTabControllerState extends State<MainTabController> {
         print("Erro ao carregar notificações: $e");
       }
     }
+    final defaultSensorCfg = _buildDefaultSensorConfigs();
+    final String? sensorCfgJson = prefs.getString('sensor_configs_v1');
+    if (sensorCfgJson != null) {
+      try {
+        final decoded = jsonDecode(sensorCfgJson);
+        if (decoded is Map<String, dynamic>) {
+          decoded.forEach((key, val) {
+            if (defaultSensorCfg.containsKey(key) && val is Map) {
+              final merged = Map<String, dynamic>.from(defaultSensorCfg[key]!);
+              val.forEach((k, v) {
+                merged[k.toString()] = v;
+              });
+              if (merged['type'] == null) {
+                merged['type'] = _sensorTypeForKey(key);
+              }
+              defaultSensorCfg[key] = merged;
+            }
+          });
+        }
+      } catch (e) {}
+    }
     final savedDnd = prefs.getBool('is_dnd_enabled') == true;
     final savedDndStart = prefs.getString('dnd_start_time') ?? "22:00";
     final savedDndEnd = prefs.getString('dnd_end_time') ?? "07:00";
@@ -2016,8 +2688,8 @@ class _MainTabControllerState extends State<MainTabController> {
     setState(() {
       raspIP = savedIp;
       remoteHost = savedRemoteHost;
-      videoPort = savedVideoPort;
-      wsPort = savedWsPort;
+      videoPort = sanitizedVideoPort;
+      wsPort = sanitizedWsPort;
       useRemoteSsl = savedUseRemoteSsl;
       phCalibration = savedPh;
       cameraBrightness = savedBrightness;
@@ -2026,6 +2698,7 @@ class _MainTabControllerState extends State<MainTabController> {
           : _cameraFpsOptions.first;
       isAiEnabled = savedAiEnabled;
       isCloudMode = savedCloudMode;
+      sensorConfigs = defaultSensorCfg;
       mqttBroker = savedMqttBroker;
       mqttPort = savedMqttPort;
       mqttTopicPrefix = savedMqttTopic;
@@ -2054,10 +2727,11 @@ class _MainTabControllerState extends State<MainTabController> {
       analyticsOrder = savedAnalyticsOrder;
       controlOrder = savedControlOrder;
       settingsOrder = savedSettingsOrder;
+      personalizacaoOrder = savedPersonalizacaoOrder;
       funcionalidadesOrder = savedFuncionalidadesOrder;
       conexaoOrder = savedConexaoOrder;
       simulacaoOrder = savedSimulacaoOrder;
-      isNightModeEnabled = savedNightMode;
+      isEcoModeEnabled = savedEcoMode;
       isDndEnabled = savedDnd;
       dndStartTime = TimeOfDay(
         hour: int.parse(savedDndStart.split(":")[0]),
@@ -2071,10 +2745,8 @@ class _MainTabControllerState extends State<MainTabController> {
       if (isAutoPumpEnabled) {
         _startAutoPump();
       }
-      sensorUnits.forEach((key, defaultValue) {
-        sensorUnits[key] = prefs.getString('unit_$key') ?? defaultValue;
-      });
     });
+    _applySensorUnitsFromConfigs();
     if (phPub != null) {
       client.addSample(phPub!, phCalibration);
     }
@@ -2083,6 +2755,18 @@ class _MainTabControllerState extends State<MainTabController> {
     }
     if (targetFpsPub != null) {
       client.addSample(targetFpsPub!, cameraTargetFps);
+    }
+    try {
+      final provider = Provider.of<AppProvider>(context, listen: false);
+      provider.raspIP = raspIP;
+      provider.remoteHost = remoteHost;
+      provider.videoPort = videoPort;
+      provider.wsPort = wsPort;
+      provider.isCloudMode = isCloudMode;
+      provider.useRemoteSsl = useRemoteSsl;
+      provider.loadFromDb(); 
+    } catch (e) {
+      debugPrint("Provider: Erro na sincronização de configurações: $e");
     }
   }
   Future<void> _setupMQTT({String? manualBroker}) async {
@@ -2098,7 +2782,7 @@ class _MainTabControllerState extends State<MainTabController> {
       mqttClient = MqttServerClient(b, clientId);
       mqttClient!.port = mqttPort;
       mqttClient!.keepAlivePeriod = 60;
-      mqttClient!.connectTimeoutPeriod = 5000; 
+      mqttClient!.connectTimeoutPeriod = 5000;
       mqttClient!.autoReconnect = true;
       mqttClient!.onDisconnected = () {
         if (mounted) setState(() => isConnected = false);
@@ -2108,13 +2792,14 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       };
       mqttClient!.onConnected = () {
-        if (mounted)
+        if (mounted) {
           setState(() {
             isConnected = true;
-            mqttBroker = b; 
+            mqttBroker = b;
           });
+        }
         _addAlert("MQTT: Conectado ao Broker $b", category: 'connectivity');
-        for (var key in sensorData.keys) {
+        for (var key in _enabledSensorKeys()) {
           mqttClient!.subscribe("$mqttTopicPrefix/$key", MqttQos.atMostOnce);
         }
         mqttClient!.subscribe("$mqttTopicPrefix/status", MqttQos.atMostOnce);
@@ -2152,7 +2837,7 @@ class _MainTabControllerState extends State<MainTabController> {
         if (mqttClient!.connectionStatus!.state ==
             MqttConnectionState.connected) {
           _listenToMqttUpdates();
-          return; 
+          return;
         }
       } catch (e) {
         print("APP: Falha no Broker $b: $e");
@@ -2173,20 +2858,14 @@ class _MainTabControllerState extends State<MainTabController> {
       final sensorKey = topic.split('/').last;
       if (sensorData.containsKey(sensorKey)) {
         final rawVal = double.tryParse(pt) ?? 0.0;
-        final val = _processSensorValue(sensorKey, rawVal);
-        if (mounted) {
-          setState(() {
-            sensorData[sensorKey] = val;
-            lastSensorUpdate[sensorKey] = DateTime.now();
-            _updateHistory(sensorKey, val);
-          });
-        }
+        _updateSensor(sensorKey, rawVal);
+        _updateHistory(sensorKey, rawVal);
       } else {
         if (mounted) {
           setState(() {
-            if (sensorKey == "status")
+            if (sensorKey == "status") {
               plantStatus = pt;
-            else if (sensorKey == "disease")
+            } else if (sensorKey == "disease")
               hasDisease = pt.toLowerCase() == "true";
             else if (sensorKey == "confidence")
               confidence = double.tryParse(pt) ?? 0.0;
@@ -2218,6 +2897,7 @@ class _MainTabControllerState extends State<MainTabController> {
       final now = DateTime.now();
       bool changed = false;
       sensorData.forEach((key, _) {
+        if (sensorConfigs[key]?['enabled'] != true) return;
         final lastUpdate = lastSensorUpdate[key];
         final bool isHealthy =
             (lastUpdate != null && now.difference(lastUpdate).inSeconds < 10) &&
@@ -2230,6 +2910,12 @@ class _MainTabControllerState extends State<MainTabController> {
             _addAlert(
               "ERRO: Sensor ${config.name} desconectado!",
               category: 'sensor_error',
+            );
+            _showNotification(
+              "Troca de Sensor Necessária",
+              "O sensor ${config.label} parece estar com defeito ou desconectado e precisa ser verificado/trocado.",
+              category: 'sensor_replacement',
+              isCritical: true,
             );
           }
         }
@@ -2317,7 +3003,7 @@ class _MainTabControllerState extends State<MainTabController> {
             width: double.maxFinite,
             child: ListView(
               shrinkWrap: true,
-              children: sensorData.keys.map((key) {
+              children: _enabledSensorKeys().map((key) {
                 final cfg = _getSensorConfig(key);
                 final isSelected = comparisonSensors.contains(key);
                 return CheckboxListTile(
@@ -2564,9 +3250,7 @@ class _MainTabControllerState extends State<MainTabController> {
                                       fontSize: 10,
                                     ),
                                   ),
-                                  const SizedBox(
-                                    width: 40,
-                                  ), 
+                                  const SizedBox(width: 40),
                                 ],
                               ),
                               const SizedBox(height: 10),
@@ -2668,120 +3352,125 @@ class _MainTabControllerState extends State<MainTabController> {
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white54 : Colors.black54;
     String filter = "Tudo";
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final diaryNotes = provider.diaryNotes;
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          final filteredNotes = diaryNotes.where((note) {
-            final isReminder = (note['is_reminder'] == 1);
-            if (filter == "Lembretes") return isReminder;
-            if (filter == "Recados") return !isReminder;
-            return true;
-          }).toList();
-          return AlertDialog(
-            backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
-            title: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.history, color: Colors.orangeAccent),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        "Diário (${diaryNotes.length})",
-                        style: TextStyle(color: textColor, fontSize: 16),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.refresh, size: 18),
-                      onPressed: () async {
-                        await _loadDiaryFromDb();
-                        setDialogState(() {});
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: ["Tudo", "Lembretes", "Recados"].map((f) {
-                      final isSelected = filter == f;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(f, style: const TextStyle(fontSize: 12)),
-                          selected: isSelected,
-                          onSelected: (val) {
-                            if (val) setDialogState(() => filter = f);
-                          },
+      builder: (context) => Consumer<AppProvider>(
+        builder: (context, provider, child) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final filteredNotes = provider.diaryNotes.where((note) {
+              final isReminder = (note['is_reminder'] == 1);
+              if (filter == "Lembretes") return isReminder;
+              if (filter == "Recados") return !isReminder;
+              return true;
+            }).toList();
+            return AlertDialog(
+              backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+              title: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.history, color: Colors.blueAccent),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "Diário (${provider.diaryNotes.length})",
+                          style: TextStyle(color: textColor, fontSize: 16),
                         ),
-                      );
-                    }).toList(),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 18),
+                        onPressed: () async {
+                          await provider.loadFromDb();
+                        },
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: ["Tudo", "Lembretes", "Recados"].map((f) {
+                        final isSelected = filter == f;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(
+                              f,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            selected: isSelected,
+                            selectedColor: Colors.blueAccent.withOpacity(0.2),
+                            onSelected: (val) {
+                              if (val) setDialogState(() => filter = f);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: filteredNotes.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              filter == "Lembretes"
+                                  ? Icons.alarm_off
+                                  : Icons.note_alt_outlined,
+                              size: 40,
+                              color: subTextColor.withValues(alpha: 0.3),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              "Nenhum registro em \"$filter\"",
+                              style: TextStyle(color: subTextColor),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: filteredNotes.length,
+                        itemBuilder: (context, index) {
+                          final note = filteredNotes[index];
+                          return _buildDiaryCard(
+                            note,
+                            onDelete: () async {
+                              await provider.deleteDiaryNote(note['id']);
+                            },
+                          );
+                        },
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.blueAccent,
+                  ),
+                  child: const Text("FECHAR"),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    await _showAddDiaryDialog();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text("ADICIONAR"),
                 ),
               ],
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: filteredNotes.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            filter == "Lembretes"
-                                ? Icons.alarm_off
-                                : Icons.note_alt_outlined,
-                            size: 40,
-                            color: subTextColor.withValues(alpha: 0.3),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            "Nenhum registro em \"$filter\"",
-                            style: TextStyle(color: subTextColor),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: filteredNotes.length,
-                      itemBuilder: (context, index) {
-                        final note = filteredNotes[index];
-                        return _buildDiaryCard(
-                          note,
-                          onDelete: () async {
-                            if (_database != null) {
-                              await _database!.delete(
-                                'diary',
-                                where: 'id = ?',
-                                whereArgs: [note['id']],
-                              );
-                              await _loadDiaryFromDb();
-                              setDialogState(() {});
-                            }
-                          },
-                        );
-                      },
-                    ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("FECHAR"),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  await _showAddDiaryDialog();
-                  setDialogState(() {});
-                },
-                child: const Text("ADICIONAR"),
-              ),
-            ],
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -2821,65 +3510,192 @@ class _MainTabControllerState extends State<MainTabController> {
                   maxLines: 3,
                 ),
                 const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: isCapturing
-                          ? null
-                          : () async {
-                              setDialogState(() => isCapturing = true);
-                              try {
-                                final response = await http.get(
-                                  Uri.parse(_captureUrl),
-                                  headers: {
-                                    "ngrok-skip-browser-warning": "true",
-                                    "User-Agent": "PlantGuardApp/1.0",
-                                  },
-                                );
-                                if (response.statusCode == 200) {
-                                  final directory =
-                                      await getApplicationDocumentsDirectory();
-                                  final filename =
-                                      'journal_${DateTime.now().millisecondsSinceEpoch}.jpg';
-                                  final path = p.join(directory.path, filename);
-                                  final file = File(path);
-                                  await file.writeAsBytes(response.bodyBytes);
-                                  await _saveToGallery(file, filename);
-                                  setDialogState(() {
-                                    capturedImagePath = path;
-                                  });
-                                } else {
-                                  _addAlert("Erro ao capturar foto");
-                                }
-                              } catch (e) {
-                                _addAlert("Erro de conexão: $e");
-                              } finally {
-                                setDialogState(() => isCapturing = false);
-                              }
-                            },
-                      icon: isCapturing
-                          ? const SizedBox(
-                              width: 15,
-                              height: 15,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.camera_alt),
-                      label: const Text("FOTO"),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        setDialogState(() {
-                          capturedImagePath = null;
-                        });
-                      },
-                      icon: const Icon(Icons.delete_outline),
-                      label: const Text("REMOVER"),
-                    ),
-                  ],
+                SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 15,
+                    runSpacing: 10,
+                    children: [
+                      SizedBox(
+                        width: 120,
+                        child: ElevatedButton(
+                          key: const ValueKey('btn_gallery'),
+                          onPressed: isCapturing
+                              ? null
+                              : () async {
+                                  final picker = ImagePicker();
+                                  final pickedFile = await picker.pickImage(
+                                    source: ImageSource.gallery,
+                                  );
+                                  if (pickedFile != null && mounted) {
+                                    final directory =
+                                        await getApplicationDocumentsDirectory();
+                                    final filename =
+                                        'journal_picked_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                                    final path = p.join(
+                                      directory.path,
+                                      filename,
+                                    );
+                                    await File(pickedFile.path).copy(path);
+                                    setDialogState(() {
+                                      capturedImagePath = path;
+                                    });
+                                    try {
+                                      final provider = Provider.of<AppProvider>(
+                                        context,
+                                        listen: false,
+                                      );
+                                      provider.loadFromDb();
+                                    } catch (e) {}
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.withOpacity(0.1),
+                            foregroundColor: Colors.blueAccent,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.photo_library, size: 24),
+                              SizedBox(height: 4),
+                              Text(
+                                "GALERIA",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 120,
+                        child: ElevatedButton(
+                          key: const ValueKey('btn_rasp'),
+                          onPressed: isCapturing
+                              ? null
+                              : () async {
+                                  await Future.delayed(
+                                    const Duration(milliseconds: 50),
+                                  );
+                                  if (!mounted) return;
+                                  setDialogState(() => isCapturing = true);
+                                  try {
+                                    final response = await http.get(
+                                      Uri.parse(_captureUrl),
+                                      headers: {
+                                        "ngrok-skip-browser-warning": "true",
+                                        "User-Agent": "PlantGuardApp/1.0",
+                                      },
+                                    );
+                                    if (response.statusCode == 200) {
+                                      final directory =
+                                          await getApplicationDocumentsDirectory();
+                                      final filename =
+                                          'journal_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                                      final path = p.join(
+                                        directory.path,
+                                        filename,
+                                      );
+                                      final file = File(path);
+                                      await file.writeAsBytes(
+                                        response.bodyBytes,
+                                      );
+                                      await _saveToGallery(file, filename);
+                                      if (mounted) {
+                                        setDialogState(() {
+                                          capturedImagePath = path;
+                                        });
+                                      }
+                                    } else {
+                                      _addAlert(
+                                        "Erro ao capturar foto da Raspberry",
+                                      );
+                                    }
+                                  } catch (e) {
+                                    _addAlert(
+                                      "Erro de conexão com Raspberry: $e",
+                                    );
+                                    final picker = ImagePicker();
+                                    final pickedFile = await picker.pickImage(
+                                      source: ImageSource.camera,
+                                    );
+                                    if (pickedFile != null && mounted) {
+                                      final directory =
+                                          await getApplicationDocumentsDirectory();
+                                      final filename =
+                                          'journal_camera_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                                      final path = p.join(
+                                        directory.path,
+                                        filename,
+                                      );
+                                      await File(pickedFile.path).copy(path);
+                                      if (mounted) {
+                                        setDialogState(() {
+                                          capturedImagePath = path;
+                                        });
+                                      }
+                                    }
+                                  } finally {
+                                    if (mounted) {
+                                      setDialogState(() {
+                                        isCapturing = false;
+                                      });
+                                    }
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.withOpacity(0.1),
+                            foregroundColor: Colors.blueAccent,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              isCapturing
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Colors.blueAccent,
+                                            ),
+                                      ),
+                                    )
+                                  : const Icon(Icons.camera_alt, size: 24),
+                              const SizedBox(height: 4),
+                              const Text(
+                                "RASP",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const Divider(),
                 SwitchListTile(
+                  activeColor: Colors.blueAccent,
                   title: const Text("Definir Lembrete"),
                   subtitle: Text(
                     isReminder
@@ -2897,11 +3713,38 @@ class _MainTabControllerState extends State<MainTabController> {
                         initialDate: DateTime.now(),
                         firstDate: DateTime.now(),
                         lastDate: DateTime.now().add(const Duration(days: 365)),
+                        builder: (context, child) {
+                          return Theme(
+                            data: Theme.of(context).copyWith(
+                              colorScheme: const ColorScheme.dark(
+                                primary: Colors.blueAccent,
+                                onPrimary: Colors.white,
+                                surface: Color(0xFF1E1E1E),
+                                onSurface: Colors.white,
+                              ),
+                              dialogBackgroundColor: const Color(0xFF121212),
+                            ),
+                            child: child!,
+                          );
+                        },
                       );
                       if (date != null) {
                         final time = await showTimePicker(
                           context: context,
                           initialTime: TimeOfDay.now(),
+                          builder: (context, child) {
+                            return Theme(
+                              data: Theme.of(context).copyWith(
+                                colorScheme: const ColorScheme.dark(
+                                  primary: Colors.blueAccent,
+                                  onPrimary: Colors.white,
+                                  surface: Color(0xFF1E1E1E),
+                                  onSurface: Colors.white,
+                                ),
+                              ),
+                              child: child!,
+                            );
+                          },
                         );
                         if (time != null) {
                           setDialogState(() {
@@ -2930,20 +3773,35 @@ class _MainTabControllerState extends State<MainTabController> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
+              style: TextButton.styleFrom(foregroundColor: Colors.blueAccent),
               child: const Text("CANCELAR"),
             ),
             ElevatedButton(
               onPressed: () async {
-                if (controller.text.isNotEmpty || capturedImagePath != null) {
-                  await _addDiaryNote(
-                    controller.text,
-                    isReminder: isReminder,
-                    reminderTime: selectedDateTime,
-                    imagePath: capturedImagePath,
-                  );
-                  if (mounted) Navigator.pop(context);
+                final noteText = controller.text.trim();
+                if (noteText.isNotEmpty || capturedImagePath != null) {
+                  try {
+                    final provider = Provider.of<AppProvider>(
+                      context,
+                      listen: false,
+                    );
+                    Navigator.pop(context);
+                    await provider.addDiaryNote(
+                      noteText,
+                      isReminder: isReminder,
+                      reminderTime: selectedDateTime,
+                      imagePath: capturedImagePath,
+                    );
+                  } catch (e) {
+                    debugPrint("Erro ao salvar nota: $e");
+                    _addAlert("Erro ao salvar no diário");
+                  }
                 }
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                foregroundColor: Colors.white,
+              ),
               child: const Text("SALVAR"),
             ),
           ],
@@ -2986,7 +3844,7 @@ class _MainTabControllerState extends State<MainTabController> {
                 Flexible(
                   child: ListView(
                     shrinkWrap: true,
-                    children: sensorData.keys.map((key) {
+                    children: _enabledSensorKeys().map((key) {
                       final cfg = _getSensorConfig(key);
                       final isFailed = simulatedFailures[key] ?? false;
                       return SwitchListTile(
@@ -3044,7 +3902,7 @@ class _MainTabControllerState extends State<MainTabController> {
               onPressed: () {
                 setState(() {
                   simulatedFailures.clear();
-                  for (var key in sensorData.keys) {
+                  for (var key in _enabledSensorKeys()) {
                     final lastUpdate = lastSensorUpdate[key];
                     final bool isHealthy =
                         isSimulationMode ||
@@ -3525,30 +4383,26 @@ class _MainTabControllerState extends State<MainTabController> {
       onConnect: () {
         if (isConnected) return;
         setState(() => isConnected = true);
-        pumpPub = client.publishNewTopic(
-          '/SmartDashboard/CmdPump',
-          NT4TypeStr.typeBool,
-        );
-        phPub = client.publishNewTopic(
-          '/SmartDashboard/PH_Offset',
-          NT4TypeStr.typeFloat64,
-        );
+        pumpPub = client.publishNewTopic('/SmartDashboard/CmdPump', 'bool');
+        phPub = client.publishNewTopic('/SmartDashboard/PH_Offset', 'float64');
         brightnessPub = client.publishNewTopic(
           '/SmartDashboard/CameraBrightness',
-          NT4TypeStr.typeFloat64,
+          'float64',
         );
         targetFpsPub = client.publishNewTopic(
           '/SmartDashboard/CameraTargetFPS',
-          NT4TypeStr.typeFloat64,
+          'float64',
         );
         aiEnablePub = client.publishNewTopic(
           '/SmartDashboard/AIEnable',
-          NT4TypeStr.typeBool,
+          'bool',
         );
-        nightModePub = client.publishNewTopic(
-          '/SmartDashboard/NightMode',
-          NT4TypeStr.typeBool,
+        ecoModePub = client.publishNewTopic('/SmartDashboard/EcoMode', 'bool');
+        configPub = client.publishNewTopic(
+          '/SmartDashboard/ArduinoConfig',
+          'string',
         );
+        cmdPub = client.publishNewTopic('/SmartDashboard/ArduinoCmd', 'string');
         Future.delayed(const Duration(milliseconds: 500), () {
           if (pumpPub != null) client.addSample(pumpPub!, pumpState);
           if (phPub != null) client.addSample(phPub!, phCalibration);
@@ -3561,8 +4415,8 @@ class _MainTabControllerState extends State<MainTabController> {
           if (aiEnablePub != null) {
             client.addSample(aiEnablePub!, isAiEnabled);
           }
-          if (nightModePub != null) {
-            client.addSample(nightModePub!, isNightModeEnabled);
+          if (ecoModePub != null) {
+            client.addSample(ecoModePub!, isEcoModeEnabled);
           }
         });
       },
@@ -3656,11 +4510,8 @@ class _MainTabControllerState extends State<MainTabController> {
               sensorIntegrity[key] == true) {
             return;
           }
-          setState(() {
-            sensorData[key] = val;
-            lastSensorUpdate[key] = DateTime.now();
-            _updateHistory(key, val);
-          });
+          _updateSensor(key, val);
+          _updateHistory(key, val);
           _saveToDb(key, val);
           _runAiRecommendation();
           _checkMoistureIrrigation();
@@ -3949,65 +4800,152 @@ class _MainTabControllerState extends State<MainTabController> {
   }
   Widget _buildVideoCard(Color textColor, Color subTextColor, bool isDark) {
     return _buildInteractiveCard(
-      height: isAiEnabled ? 250 : 350,
+      height: 350,
       child: RepaintBoundary(
         child: ClipRRect(
           borderRadius: BorderRadius.circular(25),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (_selectedIndex == 0)
-                Mjpeg(
-                  isLive: _isStreamActive,
-                  error: (context, error, stack) {
-                    final errorMsg = error.toString();
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+              Mjpeg(
+                isLive: _isStreamActive,
+                error: (context, error, stack) {
+                  if (isSimulationMode) {
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      child: Stack(
+                        alignment: Alignment.center,
                         children: [
-                          const Icon(
-                            Icons.videocam_off,
-                            color: Colors.redAccent,
-                            size: 40,
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            "Câmera não encontrada",
-                            style: TextStyle(
-                              color: textColor,
-                              fontWeight: FontWeight.bold,
+                          const Opacity(
+                            opacity: 0.2,
+                            child: Icon(
+                              Icons.eco,
+                              size: 120,
+                              color: Colors.greenAccent,
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Text(
-                              "Erro: $errorMsg",
-                              style: TextStyle(
-                                color: subTextColor,
-                                fontSize: 10,
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.bug_report,
+                                color: Colors.blueAccent,
+                                size: 40,
                               ),
-                              textAlign: TextAlign.center,
+                              const SizedBox(height: 10),
+                              const Text(
+                                "MODO SIMULAÇÃO ATIVO",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                              const Text(
+                                "Câmera Real Indisponível",
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 15),
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white10,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Text(
+                                  "Gerando dados randômicos...",
+                                  style: TextStyle(
+                                    color: Colors.greenAccent,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Positioned(
+                            top: 20,
+                            left: 20,
+                            child: Text(
+                              "DEBUG_FEED: 127.0.0.1",
+                              style: TextStyle(
+                                color: Colors.white24,
+                                fontSize: 8,
+                                fontFamily: 'monospace',
+                              ),
                             ),
-                          ),
-                          Text(
-                            "URL: $_videoUrl",
-                            style: TextStyle(color: subTextColor, fontSize: 9),
-                            textAlign: TextAlign.center,
-                          ),
-                          TextButton(
-                            onPressed: _reconnect,
-                            child: const Text("TENTAR NOVAMENTE"),
                           ),
                         ],
                       ),
                     );
-                  },
-                  stream: _videoUrl,
-                  headers: const {
-                    "ngrok-skip-browser-warning": "true",
-                    "User-Agent": "PlantGuardApp/1.0",
-                  },
-                ),
+                  }
+                  final errorMsg = error.toString();
+                  String userError = "Câmera não encontrada";
+                  if (errorMsg.contains("1225")) {
+                    userError = "Raspberry recusou a conexão (Script OFF?)";
+                  } else if (errorMsg.contains("Timeout")) {
+                    userError = "Tempo esgotado ao buscar vídeo";
+                  }
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.videocam_off,
+                          color: Colors.redAccent,
+                          size: 40,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          userError,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Text(
+                            "Erro: $errorMsg",
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 10,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        Text(
+                          "URL: $_videoUrl",
+                          style: const TextStyle(
+                            color: Colors.white24,
+                            fontSize: 9,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        TextButton(
+                          onPressed: _reconnect,
+                          child: const Text(
+                            "TENTAR NOVAMENTE",
+                            style: TextStyle(color: Colors.blueAccent),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                stream: _videoUrl,
+                headers: const {
+                  "ngrok-skip-browser-warning": "true",
+                  "User-Agent": "PlantGuardApp/1.0",
+                },
+              ),
               Positioned(
                 top: 10,
                 left: 10,
@@ -4091,7 +5029,32 @@ class _MainTabControllerState extends State<MainTabController> {
               ),
             ),
             if (arduinoBoardConnected)
-              const Badge(label: Text("ON"), backgroundColor: Colors.green),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton.icon(
+                    onPressed: () {
+                      _sendCommand('cmd', jsonEncode({'cmd': 'register_rfid'}));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Aproxime o novo cartão do sensor..."),
+                          backgroundColor: Colors.blueAccent,
+                        ),
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.add_card,
+                      size: 16,
+                      color: Colors.blueAccent,
+                    ),
+                    label: const Text(
+                      "RFID",
+                      style: TextStyle(fontSize: 10, color: Colors.blueAccent),
+                    ),
+                  ),
+                  const Badge(label: Text("ON"), backgroundColor: Colors.green),
+                ],
+              ),
           ],
         ),
       ),
@@ -4233,100 +5196,102 @@ class _MainTabControllerState extends State<MainTabController> {
     final double waterScale = ((sensorData['u1'] ?? 50) / 100).clamp(0.5, 1.2);
     return _buildInteractiveCard(
       height: 200,
-      child: Container(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.view_in_ar, color: Colors.blueAccent),
-                const SizedBox(width: 10),
-                Text(
-                  "Visualização 3D (Beta)",
-                  style: TextStyle(
-                    color: textColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                const Text(
-                  "REATIVO",
-                  style: TextStyle(
-                    color: Colors.blueAccent,
-                    fontSize: 8,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            Expanded(
-              child: Center(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Transform.translate(
-                      offset: const Offset(0, 40),
-                      child: Container(
-                        width: 80,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: Colors.black26,
-                          borderRadius: BorderRadius.circular(100),
-                        ),
-                      ),
+      child: RepaintBoundary(
+        child: Container(
+          padding: const EdgeInsets.all(15),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.view_in_ar, color: Colors.blueAccent),
+                  const SizedBox(width: 10),
+                  Text(
+                    "Visualização 3D (Beta)",
+                    style: TextStyle(
+                      color: textColor,
+                      fontWeight: FontWeight.bold,
                     ),
-                    Transform.translate(
-                      offset: const Offset(0, 30),
-                      child: Container(
-                        width: 60,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.brown[400],
-                          borderRadius: const BorderRadius.only(
-                            bottomLeft: Radius.circular(15),
-                            bottomRight: Radius.circular(15),
-                            topLeft: Radius.circular(5),
-                            topRight: Radius.circular(5),
+                  ),
+                  const Spacer(),
+                  const Text(
+                    "REATIVO",
+                    style: TextStyle(
+                      color: Colors.blueAccent,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: Center(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Transform.translate(
+                        offset: const Offset(0, 40),
+                        child: Container(
+                          width: 80,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: Colors.black26,
+                            borderRadius: BorderRadius.circular(100),
                           ),
                         ),
                       ),
-                    ),
-                    AnimatedScale(
-                      scale: waterScale,
-                      duration: const Duration(milliseconds: 800),
-                      curve: Curves.elasticOut,
-                      child: AnimatedOpacity(
-                        opacity: healthOpacity,
-                        duration: const Duration(seconds: 1),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _build3DLeaf(true),
-                                const SizedBox(width: 4),
-                                _build3DLeaf(false),
-                              ],
+                      Transform.translate(
+                        offset: const Offset(0, 30),
+                        child: Container(
+                          width: 60,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.brown[400],
+                            borderRadius: const BorderRadius.only(
+                              bottomLeft: Radius.circular(15),
+                              bottomRight: Radius.circular(15),
+                              topLeft: Radius.circular(5),
+                              topRight: Radius.circular(5),
                             ),
-                            Container(
-                              width: 6,
-                              height: 30,
-                              color: Colors.green[800],
-                            ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                      AnimatedScale(
+                        scale: waterScale,
+                        duration: const Duration(milliseconds: 800),
+                        curve: Curves.elasticOut,
+                        child: AnimatedOpacity(
+                          opacity: healthOpacity,
+                          duration: const Duration(seconds: 1),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _build3DLeaf(true),
+                                  const SizedBox(width: 4),
+                                  _build3DLeaf(false),
+                                ],
+                              ),
+                              Container(
+                                width: 6,
+                                height: 30,
+                                color: Colors.green[800],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            Text(
-              "A planta reage à umidade e saúde",
-              style: TextStyle(color: subTextColor, fontSize: 10),
-            ),
-          ],
+              Text(
+                "A planta reage à umidade e saúde",
+                style: TextStyle(color: subTextColor, fontSize: 10),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -4355,6 +5320,46 @@ class _MainTabControllerState extends State<MainTabController> {
       ),
     );
   }
+  Widget _buildInteractiveCardCard(
+    Color textColor,
+    Color subTextColor,
+    bool isDark,
+  ) {
+    return _buildInteractiveCard(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.palette,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  "CUSTOMIZAÇÃO",
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: textColor,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 15),
+            Text(
+              "Use a aba de personalização para ajustar o visual do aplicativo.",
+              style: TextStyle(color: subTextColor, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   Widget _buildCurrentTab() {
     switch (_selectedIndex) {
       case 0:
@@ -4375,34 +5380,29 @@ class _MainTabControllerState extends State<MainTabController> {
     final subTextColor = isDark ? Colors.white54 : Colors.black54;
     return ReorderableListView(
       key: key,
-      buildDefaultDragHandles:
-          false, 
+      buildDefaultDragHandles: false,
       header: Column(
         children: [
-          if (isNightModeEnabled)
+          if (isEcoModeEnabled)
             Container(
               margin: const EdgeInsets.only(bottom: 15),
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
               decoration: BoxDecoration(
-                color: Colors.indigoAccent.withValues(alpha: 0.2),
+                color: Colors.greenAccent.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(15),
                 border: Border.all(
-                  color: Colors.indigoAccent.withValues(alpha: 0.5),
+                  color: Colors.greenAccent.withValues(alpha: 0.5),
                 ),
               ),
               child: const Row(
                 children: [
-                  Icon(
-                    Icons.nightlight_round,
-                    color: Colors.indigoAccent,
-                    size: 18,
-                  ),
+                  Icon(Icons.eco, color: Colors.greenAccent, size: 18),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      "MODO NOTURNO ATIVO: Sensores e IA operando em baixo consumo",
+                      "MODO ECONÔMICO ATIVO: Economizando bateria da Raspberry Pi",
                       style: TextStyle(
-                        color: Colors.indigoAccent,
+                        color: Colors.greenAccent,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
@@ -4513,8 +5513,158 @@ class _MainTabControllerState extends State<MainTabController> {
       }).toList(),
     );
   }
+  Widget _buildDiaryTab() {
+    return Consumer<AppProvider>(
+      builder: (context, provider, child) {
+        final isDark = widget.isDarkMode;
+        final textColor = isDark ? Colors.white : Colors.black87;
+        final subTextColor = isDark ? Colors.white54 : Colors.black54;
+        final diaryNotes = provider.diaryNotes;
+        if (diaryNotes.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.auto_stories,
+                  size: 80,
+                  color: isDark ? Colors.white10 : Colors.black12,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  "Seu diário está vazio",
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Comece a registrar a evolução da sua planta",
+                  style: TextStyle(color: subTextColor),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _showAddDiaryDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text("NOVO REGISTRO"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.greenAccent,
+                    foregroundColor: Colors.black87,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildInteractiveCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          children: [
+                            Text(
+                              diaryNotes.length.toString(),
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.orangeAccent,
+                              ),
+                            ),
+                            Text(
+                              "REGISTROS",
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: subTextColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildInteractiveCard(
+                      onTap: _showAddDiaryDialog,
+                      child: const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.add_a_photo_outlined,
+                              size: 24,
+                              color: Colors.greenAccent,
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              "ADICIONAR",
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.greenAccent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: diaryNotes.length,
+                itemBuilder: (context, index) {
+                  final note = diaryNotes[index];
+                  return _buildDiaryCard(
+                    note,
+                    onDelete: () async {
+                      await provider.deleteDiaryNote(note['id']);
+                      await _loadDiaryFromDb();
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
   Widget _buildAnalyticsTab({Key? key}) {
-    final config = _getSensorConfig(activeGraphKey);
+    final enabledKeys = _enabledSensorKeys();
+    final graphKey = enabledKeys.contains(activeGraphKey)
+        ? activeGraphKey
+        : (enabledKeys.isNotEmpty ? enabledKeys.first : activeGraphKey);
+    if (enabledKeys.isNotEmpty && graphKey != activeGraphKey) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (activeGraphKey != graphKey) {
+          setState(() {
+            activeGraphKey = graphKey;
+          });
+        }
+      });
+    }
+    final config = _getSensorConfig(graphKey);
     final isDark = widget.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white54 : Colors.black54;
@@ -4554,58 +5704,98 @@ class _MainTabControllerState extends State<MainTabController> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.fullscreen, size: 20),
-                        onPressed: () => _showFullscreenChart(context),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.add, size: 20),
+                            onPressed: _showSensorManager,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.fullscreen, size: 20),
+                            onPressed: () => _showFullscreenChart(context),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                   const SizedBox(height: 15),
                   Expanded(
                     child: RepaintBoundary(
-                      child: LineChart(
-                        _getChartData(
-                          comparisonSensors.isEmpty
-                              ? [
-                                  histories[activeGraphKey]!
-                                      .map(
-                                        (spot) => FlSpot(
-                                          spot.x,
-                                          _convertValue(
-                                            activeGraphKey,
-                                            spot.y,
-                                            sensorUnits[activeGraphKey]!,
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                ]
-                              : comparisonSensors
-                                    .map(
-                                      (k) => histories[k]!
-                                          .map(
-                                            (spot) => FlSpot(
-                                              spot.x,
-                                              _convertValue(
-                                                k,
-                                                spot.y,
-                                                sensorUnits[k]!,
+                      child: enabledKeys.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.sensors_off,
+                                    color: subTextColor,
+                                    size: 36,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    "Sem sensores configurados",
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    "Toque em + para adicionar",
+                                    style: TextStyle(
+                                      color: subTextColor,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : LineChart(
+                              _getChartData(
+                                comparisonSensors.isEmpty
+                                    ? [
+                                        histories[graphKey]!
+                                            .map(
+                                              (spot) => FlSpot(
+                                                spot.x,
+                                                _convertValue(
+                                                  graphKey,
+                                                  spot.y,
+                                                  sensorUnits[graphKey] ?? "",
+                                                ),
                                               ),
-                                            ),
+                                            )
+                                            .toList(),
+                                      ]
+                                    : comparisonSensors
+                                          .where((k) => enabledKeys.contains(k))
+                                          .map(
+                                            (k) => histories[k]!
+                                                .map(
+                                                  (spot) => FlSpot(
+                                                    spot.x,
+                                                    _convertValue(
+                                                      k,
+                                                      spot.y,
+                                                      sensorUnits[k] ?? "",
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList(),
                                           )
                                           .toList(),
-                                    )
-                                    .toList(),
-                          comparisonSensors.isEmpty
-                              ? [config.color]
-                              : comparisonSensors
-                                    .map((k) => _getSensorConfig(k).color)
-                                    .toList(),
-                          comparisonSensors.isEmpty
-                              ? [activeGraphKey]
-                              : comparisonSensors,
-                        ),
-                      ),
+                                comparisonSensors.isEmpty
+                                    ? [config.color]
+                                    : comparisonSensors
+                                          .where((k) => enabledKeys.contains(k))
+                                          .map((k) => _getSensorConfig(k).color)
+                                          .toList(),
+                                comparisonSensors.isEmpty
+                                    ? [graphKey]
+                                    : comparisonSensors
+                                          .where((k) => enabledKeys.contains(k))
+                                          .toList(),
+                              ),
+                            ),
                     ),
                   ),
                   Row(
@@ -4656,17 +5846,39 @@ class _MainTabControllerState extends State<MainTabController> {
                 ),
               ),
               const SizedBox(height: 10),
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                childAspectRatio: 1.8,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                children: sensorData.keys
-                    .map((k) => _sensorActionCard(k))
-                    .toList(),
-              ),
+              enabledKeys.isEmpty
+                  ? _buildInteractiveCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Row(
+                          children: [
+                            Icon(Icons.add, color: subTextColor),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                "Adicionar sensores para habilitar a telemetria",
+                                style: TextStyle(color: subTextColor),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _showSensorManager,
+                              child: const Text("ADICIONAR"),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 2,
+                      childAspectRatio: 1.8,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      children: enabledKeys
+                          .map((k) => _sensorActionCard(k))
+                          .toList(),
+                    ),
             ],
           );
         }
@@ -4951,52 +6163,6 @@ class _MainTabControllerState extends State<MainTabController> {
               );
             }
             break;
-          case 'ph_calibration':
-            card = _buildInteractiveCard(
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.science, color: Colors.purpleAccent),
-                        const SizedBox(width: 15),
-                        Text(
-                          "Calibração pH",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: textColor,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          phCalibration.toStringAsFixed(2),
-                          style: const TextStyle(
-                            fontSize: 18,
-                            color: Colors.purpleAccent,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Slider(
-                      key: const ValueKey('ph_calibration_slider'),
-                      value: phCalibration,
-                      activeColor: Colors.purpleAccent,
-                      onChanged: (v) => setState(() => phCalibration = v),
-                      onChangeEnd: (v) {
-                        _sendCommand('ph', v);
-                        SharedPreferences.getInstance().then(
-                          (p) => p.setDouble('ph_calib', v),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            );
-            break;
           case 'camera':
             card = _buildInteractiveCard(
               child: ListTile(
@@ -5020,79 +6186,83 @@ class _MainTabControllerState extends State<MainTabController> {
             );
             break;
           case 'diary':
-            card = _buildInteractiveCard(
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(
-                      Icons.history,
-                      color: Colors.orangeAccent,
-                    ),
-                    title: Text(
-                      "Diário de Cultivo",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: textColor,
-                      ),
-                    ),
-                    subtitle: Text(
-                      "${diaryNotes.length} registros no histórico",
-                      style: TextStyle(color: subTextColor),
-                    ),
-                    onTap: _showDiaryListDialog,
-                    trailing: const Icon(Icons.chevron_right, size: 16),
-                  ),
-                  const Divider(color: Colors.white10),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.auto_delete_outlined,
-                      color: Colors.redAccent,
-                    ),
-                    title: Text(
-                      "Limpar Apenas Diário",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: textColor,
-                      ),
-                    ),
-                    subtitle: Text(
-                      "Reconstruir tabela de notas e lembretes",
-                      style: TextStyle(color: subTextColor, fontSize: 12),
-                    ),
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text("Resetar Diário?"),
-                          content: const Text(
-                            "Isso apagará apenas as notas e lembretes e corrigirá possíveis erros de salvamento.",
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text("CANCELAR"),
-                            ),
-                            TextButton(
-                              onPressed: () async {
-                                await _resetDiaryTable();
-                                Navigator.pop(context);
-                              },
-                              child: const Text(
-                                "RESETAR",
-                                style: TextStyle(color: Colors.redAccent),
-                              ),
-                            ),
-                          ],
+            card = Consumer<AppProvider>(
+              builder: (context, provider, child) {
+                return _buildInteractiveCard(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(
+                          Icons.history,
+                          color: Colors.orangeAccent,
                         ),
-                      );
-                    },
-                    trailing: const Icon(
-                      Icons.chevron_right,
-                      color: Colors.white24,
-                    ),
+                        title: Text(
+                          "Diário de Cultivo",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                        subtitle: Text(
+                          "${provider.diaryNotes.length} registros no histórico",
+                          style: TextStyle(color: subTextColor),
+                        ),
+                        onTap: _showDiaryListDialog,
+                        trailing: const Icon(Icons.chevron_right, size: 16),
+                      ),
+                      const Divider(color: Colors.white10),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.auto_delete_outlined,
+                          color: Colors.redAccent,
+                        ),
+                        title: Text(
+                          "Limpar Apenas Diário",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                        subtitle: Text(
+                          "Reconstruir tabela de notas e lembretes",
+                          style: TextStyle(color: subTextColor, fontSize: 12),
+                        ),
+                        onTap: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text("Resetar Diário?"),
+                              content: const Text(
+                                "Isso apagará apenas as notas e lembretes e corrigirá possíveis erros de salvamento.",
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text("CANCELAR"),
+                                ),
+                                TextButton(
+                                  onPressed: () async {
+                                    await _resetDiaryTable();
+                                    Navigator.pop(context);
+                                  },
+                                  child: const Text(
+                                    "RESETAR",
+                                    style: TextStyle(color: Colors.redAccent),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          color: Colors.white24,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             );
             break;
           default:
@@ -5133,6 +6303,7 @@ class _MainTabControllerState extends State<MainTabController> {
     if (Platform.isAndroid) {
       return _buildAndroidSettingsList();
     }
+    final theme = Theme.of(context);
     final isDark = widget.isDarkMode;
     final subTextColor = isDark ? Colors.white54 : Colors.black54;
     return DefaultTabController(
@@ -5147,20 +6318,28 @@ class _MainTabControllerState extends State<MainTabController> {
                 unselectedLabelColor: subTextColor,
                 tabs: settingsOrder.map((key) {
                   switch (key) {
+                    case 'personalizacao':
+                      return const Tab(
+                        text: "Personalização",
+                        icon: Icon(Icons.palette, color: Colors.greenAccent),
+                      );
                     case 'funcionalidades':
                       return const Tab(
                         text: "Funcionalidades",
-                        icon: Icon(Icons.extension),
+                        icon: Icon(Icons.extension, color: Colors.greenAccent),
                       );
                     case 'conexao':
                       return const Tab(
                         text: "Conexão",
-                        icon: Icon(Icons.settings_ethernet),
+                        icon: Icon(
+                          Icons.settings_ethernet,
+                          color: Colors.greenAccent,
+                        ),
                       );
                     case 'simulacao':
                       return const Tab(
                         text: "Simulação",
-                        icon: Icon(Icons.biotech),
+                        icon: Icon(Icons.biotech, color: Colors.greenAccent),
                       );
                     default:
                       return const Tab(text: "Desconhecido");
@@ -5182,6 +6361,8 @@ class _MainTabControllerState extends State<MainTabController> {
             child: TabBarView(
               children: settingsOrder.map((key) {
                 switch (key) {
+                  case 'personalizacao':
+                    return _buildPersonalizacaoSettings();
                   case 'funcionalidades':
                     return _buildFuncionalidadesSettings();
                   case 'conexao':
@@ -5195,6 +6376,370 @@ class _MainTabControllerState extends State<MainTabController> {
                 }
               }).toList(),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+  Widget _buildPersonalizacaoSettings({VoidCallback? onUpdate}) {
+    final isDark = widget.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    return ReorderableListView(
+      padding: const EdgeInsets.all(20),
+      buildDefaultDragHandles: false,
+      onReorder: (oldIndex, newIndex) async {
+        setState(() {
+          if (newIndex > oldIndex) newIndex -= 1;
+          final item = personalizacaoOrder.removeAt(oldIndex);
+          personalizacaoOrder.insert(newIndex, item);
+        });
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setStringList('personalizacao_order', personalizacaoOrder);
+        if (onUpdate != null) onUpdate();
+      },
+      children: personalizacaoOrder.map((key) {
+        Widget card;
+        switch (key) {
+          case 'theme_colors':
+            card = _buildInteractiveCard(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.color_lens, color: Colors.blueAccent),
+                        const SizedBox(width: 15),
+                        Text(
+                          "Cores dos Temas",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        "Cor do Tema Claro",
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
+                      trailing: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: widget.lightColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white24),
+                        ),
+                      ),
+                      onTap: () => _showColorPickerDialog(
+                        "Cor do Tema Claro",
+                        widget.lightColor,
+                        (color) => widget.onSettingsChange(lightColor: color),
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        "Cor do Tema Escuro",
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
+                      trailing: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: widget.darkColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white24),
+                        ),
+                      ),
+                      onTap: () => _showColorPickerDialog(
+                        "Cor do Tema Escuro",
+                        widget.darkColor,
+                        (color) => widget.onSettingsChange(darkColor: color),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+            break;
+          case 'graphic_elements':
+            card = _buildInteractiveCard(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.grid_view, color: Colors.greenAccent),
+                        const SizedBox(width: 15),
+                        Text(
+                          "Elementos Gráficos",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      "Arredondamento dos Cards",
+                      style: TextStyle(color: textColor, fontSize: 14),
+                    ),
+                    Slider(
+                      value: widget.cardRadius,
+                      min: 0,
+                      max: 40,
+                      divisions: 8,
+                      label: widget.cardRadius.round().toString(),
+                      onChanged: (v) => widget.onSettingsChange(radius: v),
+                      activeColor: Colors.greenAccent,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      "Espessura da Borda",
+                      style: TextStyle(color: textColor, fontSize: 14),
+                    ),
+                    Slider(
+                      value: widget.borderWidth,
+                      min: 0,
+                      max: 5,
+                      divisions: 10,
+                      label: widget.borderWidth.toStringAsFixed(1),
+                      onChanged: (v) => widget.onSettingsChange(borderWidth: v),
+                      activeColor: Colors.greenAccent,
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        "Barra Superior Sólida",
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
+                      value: widget.solidAppBar,
+                      activeColor: Colors.greenAccent,
+                      onChanged: (v) => widget.onSettingsChange(solidAppBar: v),
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        "Cards com Transparência (Glass)",
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
+                      value: widget.glassCards,
+                      activeColor: Colors.greenAccent,
+                      onChanged: (v) => widget.onSettingsChange(glassCards: v),
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        "Efeitos de Brilho (Glow)",
+                        style: TextStyle(color: textColor, fontSize: 14),
+                      ),
+                      value: widget.glowEffects,
+                      activeColor: Colors.greenAccent,
+                      onChanged: (v) => widget.onSettingsChange(glowEffects: v),
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        foregroundColor: Colors.greenAccent,
+                      ),
+                      onPressed: () => _showSettingsReorderDialog(context),
+                      icon: const Icon(Icons.reorder),
+                      label: const Text("Reordenar Dashboard"),
+                    ),
+                  ],
+                ),
+              ),
+            );
+            break;
+          case 'font_style':
+            card = _buildInteractiveCard(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.text_fields,
+                          color: Colors.greenAccent,
+                        ),
+                        const SizedBox(width: 15),
+                        Text(
+                          "Estilo da Fonte",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      "Tamanho Global da Fonte",
+                      style: TextStyle(color: textColor, fontSize: 14),
+                    ),
+                    Slider(
+                      value: widget.fontSizeDelta,
+                      min: -4,
+                      max: 8,
+                      divisions: 12,
+                      label:
+                          (widget.fontSizeDelta > 0 ? "+" : "") +
+                          widget.fontSizeDelta.round().toString(),
+                      onChanged: (v) => widget.onSettingsChange(fontSize: v),
+                      activeColor: Colors.greenAccent,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      "Exemplo de Texto do Aplicativo",
+                      style: TextStyle(color: subTextColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            );
+            break;
+          default:
+            return SizedBox(key: ValueKey('ghost_$key'));
+        }
+        return Padding(
+          key: ValueKey(key),
+          padding: const EdgeInsets.only(bottom: 15),
+          child: Stack(
+            children: [
+              card,
+              Positioned(
+                top: 5,
+                right: 5,
+                child: ReorderableDragStartListener(
+                  index: personalizacaoOrder.indexOf(key),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black12,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.drag_indicator,
+                      size: 14,
+                      color: isDark ? Colors.white24 : Colors.black26,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+  void _showColorPickerDialog(
+    String title,
+    Color currentColor,
+    Function(Color) onColorSelected,
+  ) {
+    final colors = [
+      Colors.green,
+      Colors.greenAccent,
+      Colors.blue,
+      Colors.blueAccent,
+      Colors.red,
+      Colors.redAccent,
+      Colors.orange,
+      Colors.orangeAccent,
+      Colors.purple,
+      Colors.purpleAccent,
+      Colors.teal,
+      Colors.tealAccent,
+      Colors.amber,
+      Colors.amberAccent,
+      Colors.indigo,
+      Colors.indigoAccent,
+      Colors.pink,
+      Colors.pinkAccent,
+      Colors.brown,
+      Colors.grey,
+      Colors.deepOrange,
+      Colors.deepOrangeAccent,
+      Colors.deepPurple,
+      Colors.deepPurpleAccent,
+      Colors.lightBlue,
+      Colors.lightBlueAccent,
+      Colors.lightGreen,
+      Colors.lightGreenAccent,
+      Colors.lime,
+      Colors.limeAccent,
+      Colors.yellow,
+      Colors.yellowAccent,
+      Colors.cyan,
+      Colors.cyanAccent,
+      Colors.blueGrey,
+      Colors.black,
+      Colors.white,
+    ];
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: GridView.builder(
+            shrinkWrap: true,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 5,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemCount: colors.length,
+            itemBuilder: (context, index) {
+              final color = colors[index];
+              return InkWell(
+                onTap: () {
+                  onColorSelected(color);
+                  Navigator.pop(context);
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: currentColor == color
+                          ? Colors.white
+                          : Colors.transparent,
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      if (currentColor == color)
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.5),
+                          blurRadius: 8,
+                          spreadRadius: 2,
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CANCELAR"),
           ),
         ],
       ),
@@ -5216,6 +6761,17 @@ class _MainTabControllerState extends State<MainTabController> {
       children: settingsOrder.map((key) {
         Widget card;
         switch (key) {
+          case 'personalizacao':
+            card = _buildAndroidSettingsItem(
+              icon: Icons.palette,
+              title: "Personalização",
+              subtitle: "Cores dos Temas e Elementos Gráficos",
+              onTap: () => _navigateToAndroidSettingsPage(
+                "Personalização",
+                (onUpdate) => _buildPersonalizacaoSettings(onUpdate: onUpdate),
+              ),
+            );
+            break;
           case 'funcionalidades':
             card = _buildAndroidSettingsItem(
               icon: Icons.extension,
@@ -5397,7 +6953,7 @@ class _MainTabControllerState extends State<MainTabController> {
                   final item = settingsOrder.removeAt(oldIndex);
                   settingsOrder.insert(newIndex, item);
                 });
-                setState(() {}); 
+                setState(() {});
                 SharedPreferences.getInstance().then((prefs) {
                   prefs.setStringList('settings_order', settingsOrder);
                 });
@@ -5510,36 +7066,46 @@ class _MainTabControllerState extends State<MainTabController> {
         Widget card;
         switch (key) {
           case 'notifications':
-            card = _buildNotificationSettingsCard();
+            card = _buildNotificationSettingsCard(onUpdate: onUpdate);
             break;
-          case 'night_mode':
+          case 'eco_mode':
             card = _buildInteractiveCard(
               child: SwitchListTile(
                 secondary: Icon(
-                  Icons.nightlight_round,
-                  color: isNightModeEnabled ? Colors.indigoAccent : Colors.grey,
+                  Icons.eco,
+                  color: isEcoModeEnabled ? Colors.greenAccent : Colors.grey,
                 ),
                 title: Text(
-                  "Modo Noturno Manual",
+                  "Modo Econômico Manual",
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: textColor,
                   ),
                 ),
                 subtitle: Text(
-                  isNightModeEnabled
+                  isEcoModeEnabled
                       ? "Ativo: IA e sensores em baixo consumo"
                       : "Desativado",
                   style: TextStyle(color: subTextColor, fontSize: 12),
                 ),
-                value: isNightModeEnabled,
-                activeColor: Colors.indigoAccent,
+                value: isEcoModeEnabled,
+                activeThumbColor: Colors.greenAccent,
                 onChanged: (v) async {
-                  if (mounted) setState(() => isNightModeEnabled = v);
+                  if (mounted) {
+                    setState(() {
+                      isEcoModeEnabled = v;
+                      if (!v && (sensorData['battery'] ?? 100.0) <= 10.0) {
+                        _ecoModeManualOverride = true;
+                      }
+                      if (v) {
+                        _ecoModeManualOverride = false;
+                      }
+                    });
+                  }
                   if (onUpdate != null) onUpdate();
-                  _sendCommand('night_mode', v);
+                  _sendCommand('eco_mode', v);
                   final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('is_night_mode_enabled', v);
+                  await prefs.setBool('is_eco_mode_enabled', v);
                 },
               ),
             );
@@ -5550,7 +7116,7 @@ class _MainTabControllerState extends State<MainTabController> {
                 leading: Icon(
                   isVoiceAssistantEnabled ? Icons.mic : Icons.mic_off,
                   color: isVoiceAssistantEnabled
-                      ? Colors.greenAccent
+                      ? Colors.blueAccent
                       : Colors.grey,
                 ),
                 title: Row(
@@ -5569,7 +7135,7 @@ class _MainTabControllerState extends State<MainTabController> {
                       scale: 0.8,
                       child: Switch(
                         value: isVoiceAssistantEnabled,
-                        activeColor: Colors.greenAccent,
+                        activeThumbColor: Colors.blueAccent,
                         onChanged: (val) async {
                           if (mounted) {
                             setState(() {
@@ -5620,7 +7186,7 @@ class _MainTabControllerState extends State<MainTabController> {
                               trailing: const Icon(
                                 Icons.help_outline,
                                 size: 20,
-                                color: Colors.greenAccent,
+                                color: Colors.blueAccent,
                               ),
                               onTap: _showVoiceCommandsHelpDialog,
                             ),
@@ -5650,14 +7216,14 @@ class _MainTabControllerState extends State<MainTabController> {
                                     Icons.text_snippet_outlined,
                                     size: 18,
                                     color: !isVoiceAudioResponseEnabled
-                                        ? Colors.redAccent
+                                        ? Colors.blueAccent
                                         : Colors.grey,
                                   ),
                                   Switch(
                                     value: isVoiceAudioResponseEnabled,
                                     activeThumbColor: Colors.blueAccent,
-                                    inactiveThumbColor: Colors.redAccent,
-                                    inactiveTrackColor: Colors.redAccent
+                                    inactiveThumbColor: Colors.blueAccent,
+                                    inactiveTrackColor: Colors.blueAccent
                                         .withValues(alpha: 0.5),
                                     onChanged: (val) async {
                                       if (mounted) {
@@ -5824,7 +7390,7 @@ class _MainTabControllerState extends State<MainTabController> {
                                     min: 0,
                                     max: 100,
                                     value: moistureThreshold,
-                                    activeColor: Colors.brown,
+                                    activeColor: Colors.blueAccent,
                                     onChanged: (v) {
                                       if (mounted) {
                                         setState(() => moistureThreshold = v);
@@ -5911,7 +7477,9 @@ class _MainTabControllerState extends State<MainTabController> {
                   style: TextStyle(color: textColor, fontSize: 14),
                 ),
                 subtitle: Text(
-                  "${hudSensors.length} sensores selecionados",
+                  _enabledSensorKeys().isEmpty
+                      ? "Nenhum sensor configurado"
+                      : "${hudSensors.length} sensores selecionados",
                   style: TextStyle(color: subTextColor, fontSize: 12),
                 ),
                 onTap: () {
@@ -5924,7 +7492,7 @@ class _MainTabControllerState extends State<MainTabController> {
                           width: double.maxFinite,
                           child: ListView(
                             shrinkWrap: true,
-                            children: sensorData.keys.map((key) {
+                            children: _enabledSensorKeys().map((key) {
                               final cfg = _getSensorConfig(key);
                               final isSelected = hudSensors.contains(key);
                               return CheckboxListTile(
@@ -5984,9 +7552,9 @@ class _MainTabControllerState extends State<MainTabController> {
                 value: isVacationMode,
                 secondary: Icon(
                   Icons.beach_access,
-                  color: isVacationMode ? Colors.tealAccent : Colors.grey,
+                  color: isVacationMode ? Colors.blueAccent : Colors.grey,
                 ),
-                activeThumbColor: Colors.tealAccent,
+                activeThumbColor: Colors.blueAccent,
                 onChanged: (v) {
                   setState(() => isVacationMode = v);
                   if (onUpdate != null) onUpdate();
@@ -6043,9 +7611,9 @@ class _MainTabControllerState extends State<MainTabController> {
                 value: isAiEnabled,
                 secondary: Icon(
                   Icons.psychology,
-                  color: isAiEnabled ? Colors.greenAccent : Colors.grey,
+                  color: isAiEnabled ? Colors.purpleAccent : Colors.grey,
                 ),
-                activeThumbColor: Colors.greenAccent,
+                activeThumbColor: Colors.purpleAccent,
                 onChanged: (v) async {
                   setState(() => isAiEnabled = v);
                   if (onUpdate != null) onUpdate();
@@ -6053,6 +7621,43 @@ class _MainTabControllerState extends State<MainTabController> {
                   await prefs.setBool('ai_enabled', v);
                   _sendCommand('ai_enable', v);
                 },
+              ),
+            );
+            break;
+          case 'treinar_ia':
+            card = _buildInteractiveCard(
+              child: ListTile(
+                leading: Icon(
+                  isTrainingAi ? Icons.hourglass_top : Icons.smart_toy,
+                  color: isTrainingAi
+                      ? Colors.purpleAccent
+                      : Colors.purpleAccent,
+                ),
+                title: Text(
+                  "Treinar Modelo IA",
+                  style: TextStyle(color: textColor, fontSize: 14),
+                ),
+                subtitle: Text(
+                  isTrainingAi
+                      ? aiTrainingStatus.isNotEmpty
+                            ? aiTrainingStatus
+                            : "Treinando... ${(aiTrainingProgress * 100).toStringAsFixed(0)}%"
+                      : "Treinar com seu próprio dataset",
+                  style: TextStyle(color: subTextColor, fontSize: 12),
+                ),
+                trailing: isTrainingAi
+                    ? SizedBox(
+                        width: 100,
+                        child: LinearProgressIndicator(
+                          value: aiTrainingProgress,
+                          backgroundColor: Colors.grey,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Colors.purpleAccent,
+                          ),
+                        ),
+                      )
+                    : const Icon(Icons.chevron_right),
+                onTap: isTrainingAi ? null : () => _showTrainAiDialog(context),
               ),
             );
             break;
@@ -6280,7 +7885,7 @@ class _MainTabControllerState extends State<MainTabController> {
                         style: TextStyle(color: subTextColor, fontSize: 10),
                       ),
                       value: useRemoteSsl,
-                      activeColor: Colors.blueAccent,
+                      activeThumbColor: Colors.blueAccent,
                       onChanged: (v) {
                         setState(() => useRemoteSsl = v);
                         if (onUpdate != null) onUpdate();
@@ -6384,7 +7989,7 @@ class _MainTabControllerState extends State<MainTabController> {
               child: ListTile(
                 leading: Icon(
                   isConnected ? Icons.check_circle : Icons.error,
-                  color: isConnected ? Colors.greenAccent : Colors.redAccent,
+                  color: isConnected ? Colors.greenAccent : Colors.greenAccent,
                   size: 30,
                 ),
                 title: Text(
@@ -6411,43 +8016,87 @@ class _MainTabControllerState extends State<MainTabController> {
                 _reconnect();
                 if (onUpdate != null) onUpdate();
               },
-              child: ListTile(
-                leading: Icon(
-                  isCloudMode
-                      ? (isConnected ? Icons.cloud_done : Icons.cloud_off)
-                      : (isWebSocketConnected
-                            ? Icons.bolt
-                            : Icons.bolt_outlined),
-                  color: isCloudMode
-                      ? (isConnected ? Colors.blueAccent : Colors.grey)
-                      : (isWebSocketConnected
-                            ? Colors.blueAccent
-                            : Colors.grey),
-                  size: 30,
-                ),
-                title: Text(
-                  isCloudMode
-                      ? "Telemetria via MQTT"
-                      : "Protocolo de Alta Velocidade",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: Icon(
+                      isCloudMode
+                          ? (isConnected ? Icons.cloud_done : Icons.cloud_off)
+                          : (isWebSocketConnected
+                                ? Icons.bolt
+                                : Icons.bolt_outlined),
+                      color: isCloudMode
+                          ? (isConnected ? Colors.blueAccent : Colors.grey)
+                          : (isWebSocketConnected
+                                ? Colors.blueAccent
+                                : Colors.grey),
+                      size: 30,
+                    ),
+                    title: Text(
+                      isCloudMode
+                          ? "Telemetria via MQTT"
+                          : "Protocolo de Alta Velocidade",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                    subtitle: Text(
+                      isCloudMode
+                          ? (isConnected
+                                ? "Nuvem: ATIVA (Dados OK)"
+                                : "Nuvem: DESCONECTADA")
+                          : (isWebSocketConnected
+                                ? "WebSockets: FLUXO CONTÍNUO"
+                                : "WebSockets: DESCONECTADO"),
+                      style: TextStyle(color: subTextColor),
+                    ),
+                    trailing: Icon(
+                      Icons.refresh,
+                      color: isDark ? Colors.white24 : Colors.black26,
+                    ),
                   ),
-                ),
-                subtitle: Text(
-                  isCloudMode
-                      ? (isConnected
-                            ? "Nuvem: ATIVA (Dados OK)"
-                            : "Nuvem: DESCONECTADA")
-                      : (isWebSocketConnected
-                            ? "WebSockets: FLUXO CONTÍNUO"
-                            : "WebSockets: DESCONECTADO"),
-                  style: TextStyle(color: subTextColor),
-                ),
-                trailing: Icon(
-                  Icons.refresh,
-                  color: isDark ? Colors.white24 : Colors.black26,
-                ),
+                  Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "DEBUG URLs:",
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white38,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "VIDEO: $_videoUrl",
+                            style: const TextStyle(
+                              fontSize: 8,
+                              color: Colors.white54,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          Text(
+                            "DATA: $_wsUrl",
+                            style: const TextStyle(
+                              fontSize: 8,
+                              color: Colors.white54,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             );
             break;
@@ -6574,9 +8223,9 @@ class _MainTabControllerState extends State<MainTabController> {
                 value: isSimulationMode,
                 secondary: Icon(
                   Icons.bug_report,
-                  color: isSimulationMode ? Colors.blueAccent : Colors.grey,
+                  color: isSimulationMode ? Colors.greenAccent : Colors.grey,
                 ),
-                activeThumbColor: Colors.blueAccent,
+                activeThumbColor: Colors.greenAccent,
                 onChanged: (v) {
                   setState(() {
                     isSimulationMode = v;
@@ -6665,118 +8314,120 @@ class _MainTabControllerState extends State<MainTabController> {
     }
     return Container(
       margin: const EdgeInsets.only(top: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "ÍNDICE DE SAÚDE VITAL",
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: subTextColor.withValues(alpha: 0.6),
-              letterSpacing: 1.5,
+      child: RepaintBoundary(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "ÍNDICE DE SAÚDE VITAL",
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: subTextColor.withValues(alpha: 0.6),
+                letterSpacing: 1.5,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          _buildInteractiveCard(
-            onTap: _showHealthDiagnosis,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      SizedBox(
-                        width: 80,
-                        height: 80,
-                        child: CircularProgressIndicator(
-                          value: healthScore / 100,
-                          strokeWidth: 8,
-                          backgroundColor: isDark
-                              ? Colors.white10
-                              : Colors.black12,
-                          color: scoreColor,
-                          strokeCap: StrokeCap.round,
-                        ),
-                      ),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            "$healthScore",
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: textColor,
-                            ),
-                          ),
-                          Text(
-                            "pts",
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: subTextColor,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 25),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 12),
+            _buildInteractiveCard(
+              onTap: _showHealthDiagnosis,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Stack(
+                      alignment: Alignment.center,
                       children: [
-                        Row(
+                        SizedBox(
+                          width: 80,
+                          height: 80,
+                          child: CircularProgressIndicator(
+                            value: healthScore / 100,
+                            strokeWidth: 8,
+                            backgroundColor: isDark
+                                ? Colors.white10
+                                : Colors.black12,
+                            color: scoreColor,
+                            strokeCap: StrokeCap.round,
+                          ),
+                        ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(statusIcon, color: scoreColor, size: 18),
-                            const SizedBox(width: 8),
                             Text(
-                              statusText,
+                              "$healthScore",
                               style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: scoreColor,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          hasDisease
-                              ? "Anomalia detectada pela IA"
-                              : "Planta em condições ideais",
-                          style: TextStyle(fontSize: 12, color: subTextColor),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            _buildMiniStatusChip(
-                              Icons.local_fire_department,
-                              "$plantStreak d",
-                              Colors.orangeAccent,
-                            ),
-                            const SizedBox(width: 8),
-                            _buildMiniStatusChip(
-                              Icons.trending_up,
-                              "Nível $plantLevel",
-                              Colors.blueAccent,
+                            Text(
+                              "pts",
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: subTextColor,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
                       ],
                     ),
-                  ),
-                  Icon(
-                    Icons.chevron_right,
-                    color: subTextColor.withValues(alpha: 0.3),
-                  ),
-                ],
+                    const SizedBox(width: 25),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(statusIcon, color: scoreColor, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                statusText,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: scoreColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            hasDisease
+                                ? "Anomalia detectada pela IA"
+                                : "Planta em condições ideais",
+                            style: TextStyle(fontSize: 12, color: subTextColor),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              _buildMiniStatusChip(
+                                Icons.local_fire_department,
+                                "$plantStreak d",
+                                Colors.orangeAccent,
+                              ),
+                              const SizedBox(width: 8),
+                              _buildMiniStatusChip(
+                                Icons.trending_up,
+                                "Nível $plantLevel",
+                                Colors.blueAccent,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right,
+                      color: subTextColor.withValues(alpha: 0.3),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -6909,7 +8560,60 @@ class _MainTabControllerState extends State<MainTabController> {
     final isDark = widget.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white54 : Colors.black54;
-    if (hudSensors.isEmpty) return const SizedBox();
+    final enabledKeys = _enabledSensorKeys();
+    final visibleKeys = hudSensors
+        .where((k) => enabledKeys.contains(k))
+        .toList();
+    if (visibleKeys.isEmpty) {
+      return _buildInteractiveCard(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.analytics_outlined,
+                    color: Colors.greenAccent,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    "Telemetria Rápida",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 15),
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.sensors_off, color: subTextColor, size: 32),
+                    const SizedBox(height: 10),
+                    Text(
+                      "Nenhum sensor foi configurado",
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      "Acesse 'Gerenciar Sensores' para adicionar",
+                      style: TextStyle(color: subTextColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return _buildInteractiveCard(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -6945,7 +8649,7 @@ class _MainTabControllerState extends State<MainTabController> {
             Wrap(
               spacing: 20,
               runSpacing: 15,
-              children: hudSensors.map((key) {
+              children: visibleKeys.map((key) {
                 final cfg = _getSensorConfig(key);
                 final val = _getDisplayValue(key);
                 return SizedBox(
@@ -7367,6 +9071,11 @@ class _MainTabControllerState extends State<MainTabController> {
   _SensorConfig _getSensorConfig(String key) {
     String unit = sensorUnits[key] ?? "";
     bool isHealthy = sensorIntegrity[key] ?? true;
+    String configuredName(String fallback) {
+      final n = sensorConfigs[key]?['name'];
+      if (n is String && n.trim().isNotEmpty) return n.trim();
+      return fallback;
+    }
     Color mixError(Color themeColor) {
       if (isHealthy) return themeColor;
       return Color.lerp(themeColor, Colors.redAccent, 0.5) ?? Colors.redAccent;
@@ -7374,7 +9083,7 @@ class _MainTabControllerState extends State<MainTabController> {
     switch (key) {
       case 'u1':
         return _SensorConfig(
-          "Umidade Solo 1",
+          configuredName("Umidade Solo 1"),
           "U1",
           Icons.water_drop,
           mixError(Colors.blueAccent),
@@ -7382,7 +9091,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'u2':
         return _SensorConfig(
-          "Umidade Solo 2",
+          configuredName("Umidade Solo 2"),
           "U2",
           Icons.water_drop,
           mixError(Colors.blue),
@@ -7390,7 +9099,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'l1':
         return _SensorConfig(
-          "Luz Ambiente 1",
+          configuredName("Luz Ambiente 1"),
           "L1",
           Icons.wb_sunny,
           mixError(Colors.yellowAccent),
@@ -7398,7 +9107,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'l2':
         return _SensorConfig(
-          "Luz Ambiente 2",
+          configuredName("Luz Ambiente 2"),
           "L2",
           Icons.wb_sunny,
           mixError(Colors.orangeAccent),
@@ -7406,7 +9115,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 't1':
         return _SensorConfig(
-          "Temperatura 1",
+          configuredName("Temperatura 1"),
           "T1",
           Icons.thermostat,
           mixError(Colors.redAccent),
@@ -7414,7 +9123,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 't2':
         return _SensorConfig(
-          "Temperatura 2",
+          configuredName("Temperatura 2"),
           "T2",
           Icons.thermostat,
           mixError(Colors.deepOrange),
@@ -7422,7 +9131,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'p1':
         return _SensorConfig(
-          "Nível pH 1",
+          configuredName("Nível pH 1"),
           "P1",
           Icons.science,
           mixError(Colors.purpleAccent),
@@ -7430,7 +9139,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'p2':
         return _SensorConfig(
-          "Nível pH 2",
+          configuredName("Nível pH 2"),
           "P2",
           Icons.science,
           mixError(Colors.deepPurpleAccent),
@@ -7438,7 +9147,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'ec':
         return _SensorConfig(
-          "Eletrocondutividade",
+          configuredName("Eletrocondutividade"),
           "EC",
           Icons.bolt,
           mixError(Colors.cyanAccent),
@@ -7446,7 +9155,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'water_level':
         return _SensorConfig(
-          "Nível de Água",
+          configuredName("Nível de Água"),
           "NV",
           Icons.waves,
           mixError(Colors.blue),
@@ -7454,7 +9163,7 @@ class _MainTabControllerState extends State<MainTabController> {
         );
       case 'battery':
         return _SensorConfig(
-          "Bateria",
+          configuredName("Bateria"),
           "BT",
           Icons.battery_charging_full,
           mixError(Colors.green),
@@ -7470,245 +9179,254 @@ class _MainTabControllerState extends State<MainTabController> {
         );
     }
   }
-  Widget _buildNotificationSettingsCard({Key? key}) {
+  Widget _buildNotificationSettingsCard({VoidCallback? onUpdate}) {
     final isDark = widget.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    final bool expanded = isNotificationsEnabled && _isNotificationsExpanded;
     return _buildInteractiveCard(
-      key: key,
-      child: ExpansionTile(
-        key: const PageStorageKey('notif_expansion_tile'),
-        initiallyExpanded: isNotificationsEnabled == true,
-        shape: const Border(),
-        collapsedShape: const Border(),
-        leading: Icon(
-          isNotificationsEnabled == true
-              ? Icons.notifications_active
-              : Icons.notifications_off,
-          color: isNotificationsEnabled == true
-              ? Colors.orangeAccent
-              : Colors.grey,
-        ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                "Notificações",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: textColor,
-                ),
-              ),
-            ),
-            Transform.scale(
-              scale: 0.8,
-              child: Switch(
-                value: isNotificationsEnabled,
-                activeColor: Colors.orangeAccent,
-                onChanged: (val) {
-                  if (mounted) {
-                    setState(() {
-                      isNotificationsEnabled = val;
-                      _saveNotificationSettings();
-                    });
-                  }
-                },
-              ),
-            ),
-          ],
-        ),
+      key: ValueKey('notif_card_$expanded'),
+      child: Column(
         children: [
-          Opacity(
-            opacity: isNotificationsEnabled ? 1.0 : 0.4,
-            child: AbsorbPointer(
-              absorbing: !isNotificationsEnabled,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Divider(color: Colors.white10),
-                    ...notificationSettings.keys.map((category) {
-                      return Column(
-                        key: ValueKey('notif_category_$category'),
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  categoryNames[category] ?? category,
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+          ListTile(
+            onTap: isNotificationsEnabled
+                ? () {
+                    if (!mounted) return;
+                    setState(() {
+                      _isNotificationsExpanded = !_isNotificationsExpanded;
+                    });
+                    if (onUpdate != null) onUpdate();
+                  }
+                : null,
+            leading: Icon(
+              isNotificationsEnabled
+                  ? Icons.notifications_active
+                  : Icons.notifications_off,
+              color: isNotificationsEnabled ? Colors.orangeAccent : Colors.grey,
+            ),
+            title: Text(
+              "Notificações",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: textColor,
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Transform.scale(
+                  scale: 0.8,
+                  child: Switch(
+                    value: isNotificationsEnabled,
+                    activeThumbColor: Colors.orangeAccent,
+                    onChanged: (val) {
+                      if (!mounted) return;
+                      setState(() {
+                        isNotificationsEnabled = val;
+                        _isNotificationsExpanded = val;
+                      });
+                      if (onUpdate != null) onUpdate();
+                      _saveNotificationSettings();
+                    },
+                  ),
+                ),
+                Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
+                  color: isNotificationsEnabled ? subTextColor : Colors.grey,
+                ),
+              ],
+            ),
+          ),
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Padding(
+              padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Divider(color: Colors.white10),
+                  ...notificationSettings.keys.map((category) {
+                    return Column(
+                      key: ValueKey('notif_category_$category'),
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                categoryNames[category] ?? category,
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              Column(
-                                children: [
-                                  const Text(
-                                    "Push",
-                                    style: TextStyle(
-                                      fontSize: 8,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                  Checkbox(
-                                    value:
-                                        notificationSettings[category]!['push'],
-                                    activeColor: Colors.orangeAccent,
-                                    onChanged: (val) {
-                                      if (mounted) {
-                                        setState(() {
-                                          notificationSettings[category]!['push'] =
-                                              val ?? false;
-                                          _saveNotificationSettings();
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                              Column(
-                                children: [
-                                  const Text(
-                                    "Log",
-                                    style: TextStyle(
-                                      fontSize: 8,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                  Checkbox(
-                                    value:
-                                        notificationSettings[category]!['log'],
-                                    activeColor: Colors.blueAccent,
-                                    onChanged: (val) {
-                                      if (mounted) {
-                                        setState(() {
-                                          notificationSettings[category]!['log'] =
-                                              val ?? false;
-                                          _saveNotificationSettings();
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const Divider(color: Colors.white10),
-                        ],
-                      );
-                    }),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(15),
-                        border: Border.all(color: Colors.white10),
-                      ),
-                      child: Column(
-                        children: [
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text(
-                              "Modo Não Perturbe (DND)",
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
                             ),
-                            subtitle: Text(
-                              "Silenciar push entre ${dndStartTime.format(context)} e ${dndEndTime.format(context)}",
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: subTextColor,
-                              ),
-                            ),
-                            value: isDndEnabled,
-                            activeColor: Colors.purpleAccent,
-                            onChanged: (val) {
-                              if (mounted) {
-                                setState(() {
-                                  isDndEnabled = val;
-                                  _saveNotificationSettings();
-                                });
-                              }
-                            },
-                          ),
-                          if (isDndEnabled) ...[
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Column(
                               children: [
-                                TextButton(
-                                  onPressed: () async {
-                                    final time = await showTimePicker(
-                                      context: context,
-                                      initialTime: dndStartTime,
-                                    );
-                                    if (time != null && mounted) {
-                                      setState(() {
-                                        dndStartTime = time;
-                                        _saveNotificationSettings();
-                                      });
-                                    }
-                                  },
-                                  child: Text(
-                                    "Início: ${dndStartTime.format(context)}",
-                                    style: const TextStyle(fontSize: 12),
+                                const Text(
+                                  "Push",
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    color: Colors.grey,
                                   ),
                                 ),
-                                TextButton(
-                                  onPressed: () async {
-                                    final time = await showTimePicker(
-                                      context: context,
-                                      initialTime: dndEndTime,
-                                    );
-                                    if (time != null && mounted) {
-                                      setState(() {
-                                        dndEndTime = time;
-                                        _saveNotificationSettings();
-                                      });
-                                    }
+                                Checkbox(
+                                  value:
+                                      notificationSettings[category]!['push'],
+                                  activeColor: Colors.orangeAccent,
+                                  onChanged: (val) {
+                                    if (!mounted) return;
+                                    setState(() {
+                                      notificationSettings[category]!['push'] =
+                                          val ?? false;
+                                    });
+                                    if (onUpdate != null) onUpdate();
+                                    _saveNotificationSettings();
                                   },
-                                  child: Text(
-                                    "Fim: ${dndEndTime.format(context)}",
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
                                 ),
                               ],
                             ),
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text(
-                                "Ignorar DND para alertas críticos",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white70,
+                            Column(
+                              children: [
+                                const Text(
+                                  "Log",
+                                  style: TextStyle(
+                                    fontSize: 8,
+                                    color: Colors.grey,
+                                  ),
                                 ),
-                              ),
-                              value: bypassDndForCritical,
-                              activeColor: Colors.redAccent,
-                              onChanged: (val) {
-                                if (mounted) {
-                                  setState(() {
-                                    bypassDndForCritical = val ?? true;
+                                Checkbox(
+                                  value: notificationSettings[category]!['log'],
+                                  activeColor: Colors.blueAccent,
+                                  onChanged: (val) {
+                                    if (!mounted) return;
+                                    setState(() {
+                                      notificationSettings[category]!['log'] =
+                                          val ?? false;
+                                    });
+                                    if (onUpdate != null) onUpdate();
                                     _saveNotificationSettings();
-                                  });
-                                }
-                              },
+                                  },
+                                ),
+                              ],
                             ),
                           ],
-                        ],
-                      ),
+                        ),
+                        const Divider(color: Colors.white10),
+                      ],
+                    );
+                  }),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(color: Colors.white10),
                     ),
-                  ],
-                ),
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text(
+                            "Modo Não Perturbe (DND)",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          subtitle: Text(
+                            "Silenciar push entre ${dndStartTime.format(context)} e ${dndEndTime.format(context)}",
+                            style: TextStyle(fontSize: 11, color: subTextColor),
+                          ),
+                          value: isDndEnabled,
+                          activeThumbColor: Colors.purpleAccent,
+                          onChanged: (val) {
+                            if (!mounted) return;
+                            setState(() {
+                              isDndEnabled = val;
+                            });
+                            if (onUpdate != null) onUpdate();
+                            _saveNotificationSettings();
+                          },
+                        ),
+                        if (isDndEnabled) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              TextButton(
+                                onPressed: () async {
+                                  final time = await showTimePicker(
+                                    context: context,
+                                    initialTime: dndStartTime,
+                                  );
+                                  if (time != null && mounted) {
+                                    setState(() {
+                                      dndStartTime = time;
+                                    });
+                                    if (onUpdate != null) onUpdate();
+                                    _saveNotificationSettings();
+                                  }
+                                },
+                                child: Text(
+                                  "Início: ${dndStartTime.format(context)}",
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () async {
+                                  final time = await showTimePicker(
+                                    context: context,
+                                    initialTime: dndEndTime,
+                                  );
+                                  if (time != null && mounted) {
+                                    setState(() {
+                                      dndEndTime = time;
+                                    });
+                                    if (onUpdate != null) onUpdate();
+                                    _saveNotificationSettings();
+                                  }
+                                },
+                                child: Text(
+                                  "Fim: ${dndEndTime.format(context)}",
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              "Ignorar DND para alertas críticos",
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white70,
+                              ),
+                            ),
+                            value: bypassDndForCritical,
+                            activeColor: Colors.greenAccent,
+                            onChanged: (val) {
+                              if (!mounted) return;
+                              setState(() {
+                                bypassDndForCritical = val ?? true;
+                              });
+                              if (onUpdate != null) onUpdate();
+                              _saveNotificationSettings();
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
+            crossFadeState: expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 180),
           ),
         ],
       ),
@@ -7761,6 +9479,9 @@ class _MainTabControllerState extends State<MainTabController> {
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final radius = widget.cardRadius;
+    final borderWidth = widget.borderWidth;
+    final isGlass = widget.glassCards;
     return GestureDetector(
       key: key,
       onTap: onTap,
@@ -7769,37 +9490,52 @@ class _MainTabControllerState extends State<MainTabController> {
         width: double.infinity,
         margin: const EdgeInsets.symmetric(vertical: 4),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(25),
+          borderRadius: BorderRadius.circular(radius),
           border: Border.all(
             color: isDark
                 ? Colors.white.withValues(alpha: 0.1)
                 : Colors.black.withValues(alpha: 0.05),
-            width: 1.5,
+            width: borderWidth,
           ),
+          boxShadow: [
+            if (widget.glowEffects)
+              BoxShadow(
+                color: theme.colorScheme.primary.withValues(alpha: 0.05),
+                blurRadius: 10,
+                spreadRadius: 1,
+              ),
+          ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(25),
+          borderRadius: BorderRadius.circular(radius),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            filter: ImageFilter.blur(
+              sigmaX: isGlass ? 10 : 0,
+              sigmaY: isGlass ? 10 : 0,
+            ),
             child: Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.05)
-                    : Colors.white.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(25),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    isDark
-                        ? Colors.white.withValues(alpha: 0.1)
-                        : Colors.white.withValues(alpha: 0.6),
-                    isDark
-                        ? Colors.white.withValues(alpha: 0.02)
-                        : Colors.white.withValues(alpha: 0.2),
-                  ],
-                ),
+                color: isGlass
+                    ? (isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : Colors.white.withValues(alpha: 0.4))
+                    : theme.cardColor,
+                borderRadius: BorderRadius.circular(radius),
+                gradient: isGlass
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          isDark
+                              ? Colors.white.withValues(alpha: 0.1)
+                              : Colors.white.withValues(alpha: 0.6),
+                          isDark
+                              ? Colors.white.withValues(alpha: 0.02)
+                              : Colors.white.withValues(alpha: 0.2),
+                        ],
+                      )
+                    : null,
               ),
               child: child,
             ),
@@ -7817,3 +9553,4 @@ class _SensorConfig {
   final String unit;
   _SensorConfig(this.name, this.label, this.icon, this.color, this.unit);
 }
+

@@ -2,10 +2,11 @@ import cv2
 from ultralytics import YOLO
 import ntcore
 import time
-from flask import Flask, Response
+from flask import Flask, Response, request, jsonify
 import threading
 import logging
 import os
+import subprocess
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 import numpy as np
@@ -15,6 +16,32 @@ lock = threading.Lock()
 brightness_offset = 0
 stream_fps = 18
 jpeg_quality = 72
+is_training = False
+@app.route("/start_training", methods=["POST"])
+def start_training():
+    global is_training
+    if is_training:
+        return jsonify({"status": "error", "message": "Treinamento já em execução"}), 400
+    def run_train():
+        global is_training
+        is_training = True
+        try:
+            print(" [AI] Iniciando script de treinamento YOLO...")
+            process = subprocess.Popen(['python3', 'train_yolo.py'], 
+                                     stdout=subprocess.PIPE, 
+                                     stderr=subprocess.STDOUT,
+                                     text=True)
+            for line in process.stdout:
+                print(f" [TRAIN LOG] {line.strip()}")
+            process.wait()
+            print(f" [AI] Treinamento finalizado com código: {process.returncode}")
+        except Exception as e:
+            print(f" [AI] Erro fatal no treinamento: {e}")
+        finally:
+            is_training = False
+    thread = threading.Thread(target=run_train, daemon=True)
+    thread.start()
+    return jsonify({"status": "success", "message": "Treinamento iniciado"}), 200
 def create_placeholder(msg="Aguardando Câmera..."):
     img = np.zeros((480, 640, 3), dtype=np.uint8)
     cv2.putText(img, msg, (120, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
