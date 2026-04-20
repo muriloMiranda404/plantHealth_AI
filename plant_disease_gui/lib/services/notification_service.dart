@@ -79,7 +79,13 @@ class NotificationService {
     int progress = 0,
     bool onlyAlertOnce = false,
   }) async {
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      print("NotificationService: Notificações não suportadas nesta plataforma.");
+      return;
+    }
+
     if (!_isInitialized) await init();
+    if (!_isInitialized) return; // Se falhou ao inicializar, não tenta mostrar
 
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(

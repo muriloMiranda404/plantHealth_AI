@@ -44,15 +44,13 @@ class _LeafBackgroundState extends State<LeafBackground>
       vsync: this,
       duration: const Duration(seconds: 10),
     )..addListener(() {
-        setState(() {
-          for (var leaf in _leaves) {
-            leaf.y += leaf.speed;
-            if (leaf.y > 1.2) {
-              leaf.y = -0.2;
-              leaf.x = math.Random().nextDouble();
-            }
+        for (var leaf in _leaves) {
+          leaf.y += leaf.speed;
+          if (leaf.y > 1.2) {
+            leaf.y = -0.2;
+            leaf.x = math.Random().nextDouble();
           }
-        });
+        }
       })
       ..repeat();
   }
@@ -65,22 +63,31 @@ class _LeafBackgroundState extends State<LeafBackground>
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: _leaves.map((leaf) {
-        return Positioned(
-          left: leaf.x * MediaQuery.of(context).size.width,
-          top: leaf.y * MediaQuery.of(context).size.height,
-          child: Transform.rotate(
-            angle: leaf.rotation + (_controller.value * 2 * math.pi * 0.1),
-            child: Icon(
-              leaf.icon,
-              size: leaf.size,
-              color: (widget.isDarkMode ? Colors.greenAccent : Colors.green)
-                  .withValues(alpha: 0.1),
-            ),
-          ),
-        );
-      }).toList(),
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final size = MediaQuery.of(context).size;
+          return Stack(
+            children: _leaves.map((leaf) {
+              return Positioned(
+                left: leaf.x * size.width,
+                top: leaf.y * size.height,
+                child: Transform.rotate(
+                  angle: leaf.rotation + (_controller.value * 2 * math.pi * 0.1),
+                  child: Icon(
+                    leaf.icon,
+                    size: leaf.size,
+                    color:
+                        (widget.isDarkMode ? Colors.greenAccent : Colors.green)
+                            .withValues(alpha: 0.1),
+                  ),
+                ),
+              );
+            }).toList(),
+          );
+        },
+      ),
     );
   }
 }

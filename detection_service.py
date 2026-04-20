@@ -22,12 +22,14 @@ def start_training():
     global is_training
     if is_training:
         return jsonify({"status": "error", "message": "Treinamento já em execução"}), 400
+    
     def run_train():
         global is_training
         is_training = True
         try:
             print(" [AI] Iniciando script de treinamento YOLO...")
-            process = subprocess.Popen(['python3', 'train_yolo.py'], 
+            # Usa 'python' em vez de 'python3' pois estamos no Windows
+            process = subprocess.Popen(['python', 'train_yolo.py'], 
                                      stdout=subprocess.PIPE, 
                                      stderr=subprocess.STDOUT,
                                      text=True)
@@ -37,24 +39,40 @@ def start_training():
             print(f" [AI] Treinamento finalizado com código: {process.returncode}")
         except Exception as e:
             print(f" [AI] Erro fatal no treinamento: {e}")
+            with open("training_progress.json", "w") as f:
+                json.dump({"status": f"Erro: {str(e)}", "progress": 0}, f)
         finally:
             is_training = False
+            
     thread = threading.Thread(target=run_train, daemon=True)
     thread.start()
     return jsonify({"status": "success", "message": "Treinamento iniciado"}), 200
+
+@app.route("/training_status")
+def training_status():
+    progress_file = "training_progress.json"
+    if os.path.exists(progress_file):
+        try:
+            with open(progress_file, "r") as f:
+                data = json.load(f)
+                data["is_training"] = is_training
+                return jsonify(data)
+        except:
+            pass
+    return jsonify({"is_training": is_training, "progress": 0, "status": "Aguardando"})
 def create_placeholder(msg="Aguardando Câmera..."):
     img = np.zeros((480, 640, 3), dtype=np.uint8)
     cv2.putText(img, msg, (120, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     _, encoded = cv2.imencode('.jpg', img)
     return encoded.tobytes()
 output_jpeg = create_placeholder("Iniciando Sistema...")
-STREAM_WIDTH = 480
-DETECTION_INTERVAL = 3
-MIN_STREAM_FPS = 5
-MAX_STREAM_FPS = 30
-DEFAULT_JPEG_QUALITY = 72
-MIN_JPEG_QUALITY = 35
-MAX_JPEG_QUALITY = 85
+STREAM_WIDTH = 1280 # Full HD Width para o stream
+DETECTION_INTERVAL = 1 # Processa quase todo frame
+MIN_STREAM_FPS = 10
+MAX_STREAM_FPS = 60
+DEFAULT_JPEG_QUALITY = 90
+MIN_JPEG_QUALITY = 75
+MAX_JPEG_QUALITY = 98
 def adjust_quality_for_fps(current_fps):
     global jpeg_quality
     if current_fps < stream_fps - 1.0 and jpeg_quality > MIN_JPEG_QUALITY:
@@ -99,6 +117,18 @@ def generate():
 @app.route("/video_feed")
 def video_feed():
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+@app.route("/set_fps")
+def set_fps():
+    global stream_fps
+    try:
+        new_fps = int(request.args.get('fps', 18))
+        stream_fps = max(MIN_STREAM_FPS, min(MAX_STREAM_FPS, new_fps))
+        print(f" [STREAM] Novo FPS via HTTP: {stream_fps}")
+        return jsonify({"status": "success", "fps": stream_fps})
+    except:
+        return jsonify({"status": "error"}), 400
+
 def start_flask():
     print(" [STREAM] Servidor de vídeo rodando em http://0.0.0.0:5000/video_feed")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True, use_reloader=False)
@@ -124,27 +154,38 @@ def on_fps_change(event):
     except Exception as exc:
         print(f" [STREAM] Erro ao aplicar FPS: {exc}")
 def get_best_camera():
-    test_indices = [1, 2, 0, 3, 4]
+    # Prioridade para o notebook (índice 0) ou webcam externa (1, 2)
+    test_indices = [0, 1, 2, 3]
     working_cameras = []
-    print(f" [STREAM] Iniciando busca por câmeras (priorizando índices {test_indices[:2]})...")
+    print(f" [STREAM] Iniciando busca por câmeras nos índices {test_indices}...")
     for idx in test_indices:
-        cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(idx)
-        if cap.isOpened():
-            ret, _ = cap.read()
-            if ret:
-                working_cameras.append(idx)
-                print(f" [STREAM] Câmera encontrada no index {idx}")
-            cap.release()
+        try:
+            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) # Melhor para Windows
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(idx)
+            
+            if cap.isOpened():
+                # Tenta setar uma resolução maior para evitar zoom de baixa resolução
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                
+                ret, frame = cap.read()
+                if ret:
+                    working_cameras.append(idx)
+                    print(f" [STREAM] Câmera funcional encontrada no index {idx} ({frame.shape[1]}x{frame.shape[0]})")
+                cap.release()
+        except:
+            continue
+    
     if not working_cameras:
-        print(" [!] ERRO: Nenhuma câmera funcional detectada nos índices testados.")
+        print(" [!] ERRO: Nenhuma câmera funcional detectada.")
         return 0
-    for target in [1, 2]:
-        if target in working_cameras:
-            print(f" [STREAM] Selecionando WebCam Externa (Index {target})")
-            return target
-    print(f" [STREAM] Nenhuma WebCam externa (1/2) encontrada. Usando Index {working_cameras[0]}")
+    
+    # Se o index 0 estiver disponível, usamos ele (Notebook)
+    if 0 in working_cameras:
+        print(f" [STREAM] Selecionando Câmera do Notebook (Index 0)")
+        return 0
+        
     return working_cameras[0]
 def run_detection():
     global output_jpeg, lock
@@ -176,10 +217,15 @@ def run_detection():
         print(f" [!] Erro crítico ao carregar modelo: {e}")
         return
     cam_idx = get_best_camera()
-    cap = cv2.VideoCapture(cam_idx)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap = cv2.VideoCapture(cam_idx, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(cam_idx)
+        
+    # Força configurações de alta performance e qualidade
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap.set(cv2.CAP_PROP_FPS, 60) # Tenta 60 FPS no hardware
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG')) # MJPG é mais rápido para altas taxas
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     if not cap.isOpened():
         print(f" [!] Erro: Webcam no index {cam_idx} não pôde ser aberta.")
@@ -218,7 +264,7 @@ def run_detection():
                     if conf > max_conf: max_conf = conf
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     color = (0, 0, 255) if is_disease else (0, 255, 0)
-                    cv2.rectangle(draw_frame, (x1, y1), (ix2 := y2, color, 2))
+                    cv2.rectangle(draw_frame, (x1, y1), (x2, y2), color, 2)
                     text = f"{label} {conf:.2f}"
                     cv2.putText(draw_frame, text, (x1, y1 - 10), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 3)

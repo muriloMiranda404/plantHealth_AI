@@ -1,5 +1,9 @@
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'dart:convert';
 
 class SplashScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -9,10 +13,16 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _controller;
+  late AnimationController _textController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _opacityAnimation;
+  late Animation<Offset> _slideAnimation;
+  WebViewController? _webController;
+  late bool _useJsAnimation;
+  bool _isWebViewSupported = !Platform.isWindows && !Platform.isLinux;
+
   final List<_Leaf> _leaves = List.generate(25, (i) {
     final leafIcons = [
       Icons.eco,
@@ -36,13 +46,21 @@ class _SplashScreenState extends State<SplashScreen>
       icon: leafIcons[math.Random().nextInt(leafIcons.length)],
     );
   });
+
   @override
   void initState() {
     super.initState();
+    _useJsAnimation = _isWebViewSupported; // Ativo por padrão no Android/iOS
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
+
+    _textController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..forward();
+
     _scaleAnimation = Tween<double>(begin: 0.8, end: 1.1).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOutBack),
     );
@@ -50,11 +68,97 @@ class _SplashScreenState extends State<SplashScreen>
       begin: 0.6,
       end: 1.0,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.5), end: Offset.zero).animate(
+          CurvedAnimation(parent: _textController, curve: Curves.easeOutCubic),
+        );
+
+    if (_isWebViewSupported) {
+      _initWebController();
+    }
+  }
+
+  void _initWebController() {
+    try {
+      _webController = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(Colors.transparent)
+        ..loadRequest(
+          Uri.dataFromString(
+            _getJsAnimationHtml(),
+            mimeType: 'text/html',
+            encoding: Encoding.getByName('utf-8'),
+          ),
+        );
+    } catch (e) {
+      debugPrint("WebView não suportado nesta plataforma: $e");
+      _isWebViewSupported = false;
+    }
+  }
+
+  String _getJsAnimationHtml() {
+    final color = widget.isDarkMode ? '#00FF99' : '#2E7D32';
+    return """
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { margin: 0; overflow: hidden; background: transparent; }
+          canvas { display: block; }
+        </style>
+      </head>
+      <body>
+        <canvas id="canvas"></canvas>
+        <script>
+          const canvas = document.getElementById('canvas');
+          const ctx = canvas.getContext('2d');
+          let width, height, particles = [];
+
+          function init() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            particles = [];
+            for(let i = 0; i < 50; i++) {
+              particles.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                r: Math.random() * 2 + 1,
+                dx: (Math.random() - 0.5) * 0.5,
+                dy: (Math.random() - 0.5) * 0.5
+              });
+            }
+          }
+
+          function animate() {
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '$color';
+            ctx.globalAlpha = 0.5;
+            particles.forEach(p => {
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+              ctx.fill();
+              p.x += p.dx;
+              p.y += p.dy;
+              if(p.x < 0 || p.x > width) p.dx *= -1;
+              if(p.y < 0 || p.y > height) p.dy *= -1;
+            });
+            requestAnimationFrame(animate);
+          }
+
+          window.addEventListener('resize', init);
+          init();
+          animate();
+        </script>
+      </body>
+      </html>
+    """;
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _textController.dispose();
     super.dispose();
   }
 
@@ -64,10 +168,12 @@ class _SplashScreenState extends State<SplashScreen>
         ? const Color(0xFF0A0A0A)
         : const Color(0xFFF5F1E8);
     final textColor = widget.isDarkMode ? Colors.greenAccent : Colors.green;
+
     return Scaffold(
       backgroundColor: bgColor,
       body: Stack(
         children: [
+          // Fundo com Folhas Caindo (Nativo Flutter)
           ..._leaves.map(
             (leaf) => _FallingLeaf(
               key: ValueKey('leaf_${leaf.hashCode}'),
@@ -75,71 +181,106 @@ class _SplashScreenState extends State<SplashScreen>
               color: textColor,
             ),
           ),
+
+          // Demonstração de JavaScript via WebView (Partículas em Canvas)
+          if (_useJsAnimation && _isWebViewSupported && _webController != null)
+            IgnorePointer(child: WebViewWidget(controller: _webController!)),
+
           Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, child) {
-                    return Transform.scale(
-                      scale: _scaleAnimation.value,
-                      child: Opacity(
-                        opacity: _opacityAnimation.value,
-                        child: Container(
-                          width: 150,
-                          height: 150,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: textColor.withValues(alpha: 0.3),
-                                blurRadius: 30,
-                                spreadRadius: 10,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Animação Lottie de fundo para o Logo
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Lottie.network(
+                        'https://lottie.host/9d32d0f3-d096-489d-92d4-1811e74980a3/KzX5U4U2Xh.json',
+                        width: 300,
+                        height: 300,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const SizedBox(width: 300, height: 300),
+                      ),
+                      AnimatedBuilder(
+                        animation: _controller,
+                        builder: (context, child) {
+                          return Transform.scale(
+                            scale: _scaleAnimation.value,
+                            child: Opacity(
+                              opacity: _opacityAnimation.value,
+                              child: Container(
+                                width: 140,
+                                height: 140,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: textColor.withValues(alpha: 0.3),
+                                      blurRadius: 30,
+                                      spreadRadius: 10,
+                                    ),
+                                  ],
+                                ),
+                                child: ClipOval(
+                                  child: Image.asset(
+                                    'assets/logo.png',
+                                    errorBuilder:
+                                        (context, error, stackTrace) => Icon(
+                                          Icons.eco,
+                                          size: 80,
+                                          color: textColor,
+                                        ),
+                                  ),
+                                ),
                               ),
-                            ],
-                          ),
-                          child: ClipOval(
-                            child: Image.asset(
-                              'assets/logo.png',
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Icon(Icons.eco, size: 80, color: textColor),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  FadeTransition(
+                    opacity: _textController,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: Column(
+                        children: [
+                          Text(
+                            "PLANTGUARD PRO",
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 6,
                             ),
                           ),
-                        ),
+                          const SizedBox(height: 10),
+                          Text(
+                            "IA Real-Time & IoT",
+                            style: TextStyle(
+                              color: textColor.withValues(alpha: 0.6),
+                              fontSize: 14,
+                              letterSpacing: 3,
+                            ),
+                          ),
+                        ],
                       ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 40),
-                Text(
-                  "PLANTGUARD PRO",
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 4,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  "IA Real-Time & IoT",
-                  style: TextStyle(
-                    color: textColor.withValues(alpha: 0.6),
-                    fontSize: 12,
-                    letterSpacing: 2,
+                  const SizedBox(height: 40),
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      valueColor: AlwaysStoppedAnimation<Color>(textColor),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 50),
-                SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    valueColor: AlwaysStoppedAnimation<Color>(textColor),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],

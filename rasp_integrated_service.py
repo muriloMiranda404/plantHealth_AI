@@ -25,6 +25,12 @@ os.environ['OPENBLAS_CORETYPE'] = 'ARMV8'
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_DEBUG_CPU_TYPE'] = '5'
 os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
+# Globais para comunicação entre processos
+ai_queue_in = mp.Queue(maxsize=1)
+ai_queue_out = mp.Queue(maxsize=1)
+mobile_queue_in = mp.Queue(maxsize=1)
+mobile_queue_out = mp.Queue(maxsize=1)
+
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 class StreamHandler(BaseHTTPRequestHandler):
@@ -64,6 +70,36 @@ class StreamHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 print(f" [CAPTURE] Erro: {e}")
                 self.send_error(500)
+        elif self.path == '/analyze_mobile':
+            try:
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                
+                import numpy as np
+                nparr = np.frombuffer(post_data, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                if img is not None:
+                    # Vamos usar a fila dedicada para o mobile para evitar conflitos com o loop principal
+                    mobile_queue_in.put(img)
+                    # Espera o resultado da fila de saída
+                    res = mobile_queue_out.get(timeout=10.0)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res).encode())
+                else:
+                    self.send_error(400, "Imagem inválida")
+            except Exception as e:
+                print(f" [ANALYZE] Erro: {e}")
+                self.send_error(500)
+        else:
+            self.send_error(404)
+
+    def do_POST(self):
+        if self.path == '/analyze_mobile':
+            self.do_GET() # Reutiliza a lógica se for POST
         else:
             self.send_error(404)
 def start_mjpeg_server():
@@ -110,7 +146,7 @@ async def ws_server_logic():
             await asyncio.sleep(5)
 def start_ws():
     asyncio.run(ws_server_logic())
-def ai_process_worker(queue_in, queue_out, model_path):
+def ai_process_worker(queue_in, queue_out, model_path, mob_in=None, mob_out=None):
     from ultralytics import YOLO
     import torch
     torch.backends.nnpack.enabled = False
@@ -124,6 +160,7 @@ def ai_process_worker(queue_in, queue_out, model_path):
     except Exception as e:
         print(f" [IA] Erro ao carregar YOLO: {e}")
         model = None
+    
     ei_runner = None
     if HAS_EDGE_IMPULSE:
         modelfile = "modelfile.eim"
@@ -135,12 +172,25 @@ def ai_process_worker(queue_in, queue_out, model_path):
             except Exception as e:
                 print(f" [IA] Falha ao iniciar Edge Impulse: {e}")
                 ei_runner = None
+
     while True:
         try:
-            frame = queue_in.get()
-            if frame is None: break
+            # Prioridade para o mobile se houver algo na fila
+            current_queue_in = queue_in
+            current_queue_out = queue_out
+            is_mobile = False
+
+            if mob_in and not mob_in.empty():
+                frame = mob_in.get()
+                current_queue_out = mob_out
+                is_mobile = True
+            else:
+                frame = queue_in.get()
+                if frame is None: break
+
             status, has_dis, conf = "Saudável", "false", 0.0
             detected_boxes = []
+            
             if ei_runner:
                 try:
                     features, img = ei_runner.get_features_from_image(frame)
@@ -158,10 +208,14 @@ def ai_process_worker(queue_in, queue_out, model_path):
                                 })
                 except Exception as e:
                     print(f" [IA] Erro na inferência Edge Impulse: {e}")
+
             if not detected_boxes and model:
-                small_frame = cv2.resize(frame, (320, 240))
+                # Se for mobile, podemos usar uma resolução maior para melhor precisão
+                imgsz = 640 if is_mobile else 320
+                small_frame = cv2.resize(frame, (imgsz, imgsz))
                 with torch.no_grad():
-                    results = model.predict(small_frame, conf=0.35, imgsz=320, verbose=False, device='cpu')
+                    results = model.predict(small_frame, conf=0.35, imgsz=imgsz, verbose=False, device='cpu')
+                
                 if results:
                     for r in results:
                         if r.boxes:
@@ -179,18 +233,22 @@ def ai_process_worker(queue_in, queue_out, model_path):
                                 if c > max_conf:
                                     max_conf = c
                                     best_box = box
+                            
                             if best_box:
                                 cls = int(best_box.cls[0])
                                 status = model.names[cls]
-                                has_dis = "true" if (cls > 0 or "saudavel" not in status.lower()) else "false"
+                                has_dis = "true" if (cls < 0 or "saudavel" not in status.lower()) else "false"
                                 conf = max_conf
-            queue_out.put({
+            
+            current_queue_out.put({
                 "status": status, 
                 "disease": has_dis, 
                 "confidence": conf, 
                 "boxes": detected_boxes
             })
-        except: pass
+        except Exception as e:
+            print(f" [IA] Erro no processamento: {e}")
+            pass
 def find_arduino():
     print(" [SISTEMA] Procurando Arduino UNO...")
     ports = serial.tools.list_ports.comports()
@@ -257,12 +315,10 @@ if __name__ == "__main__":
             ECO_MODE = event.data.value.getBoolean()
             print(f" [NT4] Modo Econômico {'Ativado' if ECO_MODE else 'Desativado'}")
         except: pass
-    ai_queue_in = mp.Queue(maxsize=1)
-    ai_queue_out = mp.Queue(maxsize=1)
-    ai_p = mp.Process(target=ai_process_worker, args=(ai_queue_in, ai_queue_out, 'best.pt'), daemon=True)
-    ai_p.start()
+
     mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     mqtt_connected = False
+
     def on_mqtt_message(client, userdata, msg):
         global SIMULATION_MODE, AI_ENABLED, CAMERA_BRIGHTNESS, CAMERA_TARGET_FPS, TAKE_PHOTO_REQUEST, ECO_MODE
         try:
@@ -310,6 +366,7 @@ if __name__ == "__main__":
                     print(f" [ARDUINO] Enviando Comando JSON: {cmd.strip()}")
         except Exception as e: 
             print(f" [MQTT ERRO] {e}")
+
     def on_connect(client, userdata, flags, rc, properties=None):
         global mqtt_connected
         if rc == 0:
@@ -319,6 +376,7 @@ if __name__ == "__main__":
             client.publish(f"{MQTT_TOPIC_PREFIX}/mqtt_status", "connected", retain=True)
         else:
             print(f" [MQTT] Erro na conexão: {rc}")
+
     def on_nt_change(event):
         global CAMERA_BRIGHTNESS, CAMERA_TARGET_FPS, AI_ENABLED, ECO_MODE
         try:
@@ -354,9 +412,13 @@ if __name__ == "__main__":
                     print(f" [ARDUINO-NT4] Enviando Comando: {cmd.strip()}")
         except Exception as e:
             print(f" [NT4 ERRO] {e}")
+
     inst.addListener(["/SmartDashboard/"], ntcore.EventFlags.kValueAll, on_nt_change)
     mqtt_client.on_message = on_mqtt_message
     mqtt_client.on_connect = on_connect
+    
+    ai_p = mp.Process(target=ai_process_worker, args=(ai_queue_in, ai_queue_out, 'best.pt', mobile_queue_in, mobile_queue_out), daemon=True)
+    ai_p.start()
     def start_mqtt():
         brokers = ["test.mosquitto.org", "broker.hivemq.com", "broker.emqx.io"]
         for b in brokers:
@@ -396,13 +458,14 @@ if __name__ == "__main__":
                                 break
                         if cap and cap.isOpened(): break
                     if cap and cap.isOpened():
-                        print(f" [CÂMERA] Configurando resolução e FPS...")
-                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                        print(f" [CÂMERA] Configurando alta qualidade e FPS...")
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                         cap.set(cv2.CAP_PROP_BRIGHTNESS, (CAMERA_BRIGHTNESS + 100) / 200.0)
-                        cap.set(cv2.CAP_PROP_FPS, CAMERA_TARGET_FPS)
-                with frame_lock:
-                    current_encoded_frame = create_test_frame("BUSCANDO CÂMERA...")
+                        cap.set(cv2.CAP_PROP_FPS, 30) # Aumentado para 30 FPS base
+                    else:
+                        with frame_lock:
+                            current_encoded_frame = create_test_frame("BUSCANDO CÂMERA...")
             if cap and cap.isOpened():
                 if frame_count % 100 == 0:
                     current_hw_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -431,7 +494,7 @@ if __name__ == "__main__":
                         fps_frame_counter = 0
                         fps_start_time = time.time()
                     try:
-                        ret_enc, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 35])
+                        ret_enc, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
                         if ret_enc:
                             with frame_lock:
                                 current_encoded_frame = buffer.tobytes()
