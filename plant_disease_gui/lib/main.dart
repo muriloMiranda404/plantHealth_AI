@@ -32,12 +32,18 @@ import 'services/database_service.dart';
 import 'services/ai_training_service.dart';
 import 'widgets/slide_fade_transition.dart';
 
+import 'injection_container.dart' as di;
+import 'features/diary/presentation/providers/diary_provider.dart';
+import 'features/monitoring/presentation/providers/monitoring_provider.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
+
+  await di.sl.init();
 
   final notificationService = NotificationService();
   if (Platform.isAndroid || Platform.isIOS) {
@@ -46,8 +52,14 @@ void main() async {
   }
 
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => AppProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AppProvider()),
+        ChangeNotifierProvider(create: (_) => di.sl.provideDiaryProvider()),
+        ChangeNotifierProvider(
+          create: (_) => di.sl.provideMonitoringProvider(),
+        ),
+      ],
       child: const PlantGuardProApp(),
     ),
   );
@@ -100,6 +112,7 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
       final savedGlowEffects = prefs.getBool('glow_effects') ?? true;
 
       if (mounted) {
+        context.read<MonitoringProvider>().checkSmartIrrigation(-23.55, -46.63);
         setState(() {
           _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
           if (savedLightColor != null) _lightColor = Color(savedLightColor);
@@ -253,8 +266,6 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
     );
   }
 }
-
-// SplashScreen moved to lib/screens/splash_screen.dart
 
 class MainTabController extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -580,6 +591,7 @@ class _MainTabControllerState extends State<MainTabController> {
   ];
   List<String> analyticsOrder = ['chart', 'sensor_selector'];
   List<String> controlOrder = [
+    'weather',
     'diagnosis',
     'mobile_analysis',
     'ai_assistant',
@@ -684,16 +696,15 @@ class _MainTabControllerState extends State<MainTabController> {
   int _simulationSeconds = 0;
   Offset _simulationBubblePos = const Offset(20, 100);
 
-  // Cenários Climáticos e Rede
   String _currentScenario = "Normal";
   double _networkLatency = 0.0;
   double _packetLossRate = 0.0;
   bool _isNetworkSimEnabled = false;
 
-  // Controle de Câmera
+  final AiTrainingService _aiService = AiTrainingService();
   CameraController? _cameraController;
   bool _isCameraSourceRasp = true;
-  bool _isCameraSourceNotebook = false; // true = Raspberry, false = Celular
+  bool _isCameraSourceNotebook = false;
   List<CameraDescription> _availableCameras = [];
   bool _isCameraInitialized = false;
   String aiRecommendation = "Aguardando dados para análise...";
@@ -717,7 +728,6 @@ class _MainTabControllerState extends State<MainTabController> {
   bool isVoiceAssistantEnabled = false;
   bool isVoiceAudioResponseEnabled = true;
 
-  // PlantGotchi State
   String _plantThought = "Olá! Como você está hoje?";
   Timer? _thoughtTimer;
   bool _isPetting = false;
@@ -765,7 +775,7 @@ class _MainTabControllerState extends State<MainTabController> {
       _isPetting = true;
       _plantThought = "Isso é tão bom! <3";
     });
-    _addExp(5); // Carinho dá um pouco de XP
+    _addExp(5);
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         setState(() => _isPetting = false);
@@ -788,7 +798,7 @@ class _MainTabControllerState extends State<MainTabController> {
       _remoteHostController = TextEditingController(text: remoteHost);
       _loadSettings().then((_) {
         _reconnect();
-        // Sincronizar AppProvider com o banco de dados inicializado
+
         try {
           final provider = Provider.of<AppProvider>(context, listen: false);
           provider.loadFromDb();
@@ -805,8 +815,9 @@ class _MainTabControllerState extends State<MainTabController> {
       if (_availableCameras.isNotEmpty) {
         _cameraController = CameraController(
           _availableCameras[0],
-          ResolutionPreset.medium,
+          ResolutionPreset.high,
           enableAudio: false,
+          imageFormatGroup: ImageFormatGroup.jpeg,
         );
         await _cameraController!.initialize();
         if (mounted) {
@@ -870,7 +881,7 @@ class _MainTabControllerState extends State<MainTabController> {
         if (histories.containsKey(key)) {
           histories[key]!.insert(0, FlSpot(map['timestamp'].toDouble(), value));
         }
-        // Ganhar 1 XP para cada leitura histórica carregada sem disparar rebuilds extras
+
         _addExp(1, shouldUpdateState: false);
       }
     });
@@ -887,13 +898,11 @@ class _MainTabControllerState extends State<MainTabController> {
       setState(() {
         diaryNotes = List.from(maps);
       });
-      // Sincronizar com o AppProvider para garantir que o Android veja os dados
+
       try {
         final provider = Provider.of<AppProvider>(context, listen: false);
         provider.setDiaryNotes(maps);
-      } catch (e) {
-        // Provider pode não estar pronto
-      }
+      } catch (e) {}
     } catch (e) {
       print("DB: Erro ao carregar diário: $e");
       _addAlert("Erro ao carregar diário: $e");
@@ -918,7 +927,6 @@ class _MainTabControllerState extends State<MainTabController> {
     DateTime? reminderTime,
     String? imagePath,
   }) async {
-    // 1. Garantir que usamos o AppProvider como fonte única de verdade
     try {
       final provider = Provider.of<AppProvider>(context, listen: false);
       await provider.addDiaryNote(
@@ -927,9 +935,8 @@ class _MainTabControllerState extends State<MainTabController> {
         reminderTime: reminderTime,
         imagePath: imagePath,
       );
-      _addExp(15); // Bônus por escrever no diário
+      _addExp(15);
 
-      // 2. Sincronizar o estado local do main.dart (para compatibilidade legada)
       await _loadDiaryFromDb();
 
       _addAlert(
@@ -954,13 +961,11 @@ class _MainTabControllerState extends State<MainTabController> {
     if (time.isAfter(now)) {
       final delay = time.difference(now);
       Timer(delay, () async {
-        // Respeitar as configurações globais de notificação antes de disparar o lembrete
         if (!isNotificationsEnabled) {
           debugPrint("LEMBRETE: Bloqueado (Notificações Desativadas)");
           return;
         }
 
-        // Se o modo Não Perturbe estiver ativo, não mostramos o lembrete (exceto se você quiser que lembretes sejam críticos)
         if (isDndEnabled && _isCurrentTimeInDndRange()) {
           debugPrint("LEMBRETE: Bloqueado (Modo Não Perturbe Ativo)");
           return;
@@ -989,10 +994,7 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   Future<void> _saveToDb(String key, double value) async {
-    _addExp(
-      1,
-      shouldUpdateState: false,
-    ); // Ganha 1 XP sem disparar rebuild imediato
+    _addExp(1, shouldUpdateState: false);
     if (_database == null) return;
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     await _database!.insert('history', {
@@ -1050,15 +1052,11 @@ class _MainTabControllerState extends State<MainTabController> {
     String category = 'system',
     bool isCritical = false,
   }) async {
-    // 1. Verificar se as notificações globais estão ativadas
     if (!isNotificationsEnabled && !isCritical) {
       debugPrint("NOTIF: Bloqueada (Configuração Global Desativada)");
       return;
     }
 
-    // 2. Verificar o filtro específico do usuário para esta categoria
-    // Se a categoria for 'ai_updates' (interna), mas na UI for 'gamification', precisamos converter.
-    // Vamos garantir que o código use as mesmas chaves do mapa notificationSettings.
     final pushEnabled = notificationSettings[category]?['push'] ?? true;
 
     if (!pushEnabled && !isCritical) {
@@ -1068,9 +1066,7 @@ class _MainTabControllerState extends State<MainTabController> {
       return;
     }
 
-    // 3. Verificar se o Modo Não Perturbe (DND) está ativo
     if (isDndEnabled && _isCurrentTimeInDndRange()) {
-      // Se for crítico e bypassDndForCritical estiver ativo, deixamos passar
       if (isCritical && bypassDndForCritical) {
         debugPrint("NOTIF: Permitida (Crítica ignorando DND)");
       } else {
@@ -1081,13 +1077,17 @@ class _MainTabControllerState extends State<MainTabController> {
 
     final notificationService = NotificationService();
 
-    // Configurações de canal baseadas na categoria
     String channelId = 'plant_health_alerts';
     String channelName = 'Alertas de Saúde';
     Importance importance = Importance.max;
     Priority priority = Priority.high;
 
-    if (title.contains("Treinando") ||
+    if (isCritical) {
+      channelId = 'critical_alerts';
+      channelName = 'Alertas Críticos';
+      importance = Importance.max;
+      priority = Priority.max;
+    } else if (title.contains("Treinando") ||
         title.contains("Treinamento IA iniciado")) {
       channelId = 'ai_training_channel';
       channelName = 'Treinamento de IA';
@@ -1096,7 +1096,7 @@ class _MainTabControllerState extends State<MainTabController> {
     }
 
     await notificationService.showNotification(
-      id: title.contains("Treinando") ? 999 : math.Random().nextInt(1000),
+      id: title.contains("Treinando") ? 999 : math.Random().nextInt(1000000),
       title: title,
       body: body,
       channelId: channelId,
@@ -1107,6 +1107,7 @@ class _MainTabControllerState extends State<MainTabController> {
       maxProgress: 100,
       progress: (aiTrainingProgress * 100).toInt(),
       onlyAlertOnce: title.contains("Treinando"),
+      fullScreenIntent: isCritical,
     );
   }
 
@@ -1121,6 +1122,27 @@ class _MainTabControllerState extends State<MainTabController> {
     } else {
       return current >= start || current <= end;
     }
+  }
+
+  Future<void> _saveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('rasp_ip', raspIP);
+    await prefs.setString('remote_host', remoteHost);
+    await prefs.setInt('video_port', videoPort);
+    await prefs.setInt('ws_port', wsPort);
+    await prefs.setBool('cloud_mode', isCloudMode);
+    await prefs.setBool('use_remote_ssl', useRemoteSsl);
+    await prefs.setBool('is_dark_mode', widget.isDarkMode);
+    await prefs.setInt('light_theme_color', widget.lightColor.value);
+    await prefs.setInt('dark_theme_color', widget.darkColor.value);
+    await prefs.setDouble('card_border_radius', widget.cardRadius);
+    await prefs.setDouble('card_border_width', widget.borderWidth);
+    await prefs.setBool('solid_app_bar', widget.solidAppBar);
+    await prefs.setDouble('font_size_delta', widget.fontSizeDelta);
+    await prefs.setBool('glass_cards', widget.glassCards);
+    await prefs.setBool('glow_effects', widget.glowEffects);
+    await prefs.setStringList('hud_sensors', hudSensors);
+    print("APP: Configurações salvas.");
   }
 
   void _reconnect() {
@@ -1175,12 +1197,22 @@ class _MainTabControllerState extends State<MainTabController> {
         onError: (e) {
           if (mounted) setState(() => isWebSocketConnected = false);
           String errorMsg = e.toString();
-          // Detect Windows socket refusal and clarify ephemeral ports
+
           if (errorMsg.contains("errno = 1225")) {
             errorMsg =
                 "Conexão Recusada pela Raspberry em $wsUrl. Verifique se o script Python está rodando na Pi.";
+          } else if (errorMsg.contains("121") || errorMsg.contains("timeout")) {
+            errorMsg =
+                "Erro de Rede (Timeout 121): O sinal do Wi-Fi pode estar fraco ou a Raspberry Pi está inacessível.";
           }
           debugPrint("WS Stream Error: $errorMsg");
+
+
+          Future.delayed(const Duration(seconds: 10), () {
+            if (mounted && !isWebSocketConnected) {
+              _setupWebSockets();
+            }
+          });
           if (isCloudMode) {
             _addAlert(
               "Dica: WebSockets podem falhar no 4G/Tunnels. Use o MQTT para dados.",
@@ -1211,18 +1243,39 @@ class _MainTabControllerState extends State<MainTabController> {
       final processed = _processSensorValue(key, val);
       sensorData[key] = processed;
       lastSensorUpdate[key] = DateTime.now();
+
+      try {
+        final provider = Provider.of<AppProvider>(context, listen: false);
+        provider.updateSensor(key, processed);
+      } catch (e) {}
+
+      if (key == 'u1' && val < 20.0) {
+        _showNotification(
+          "ALERTA DE SEDE CRÍTICA",
+          "A umidade do solo está em ${val.toStringAsFixed(1)}%. Regue agora!",
+          category: 'plant_health',
+          isCritical: true,
+        );
+      }
+
       if (key == 'battery' &&
           val <= 10.0 &&
           !isEcoModeEnabled &&
           !_ecoModeManualOverride) {
         isEcoModeEnabled = true;
         _sendCommand('eco_mode', true);
+        _showNotification(
+          "BATERIA CRÍTICA",
+          "Modo Econômico ativado automaticamente (10%).",
+          category: 'system',
+          isCritical: true,
+        );
         _addAlert(
           "BATERIA CRÍTICA: Modo Econômico ativado automaticamente.",
           category: 'system',
         );
       }
-      // Reseta o override se a bateria subir acima de 10%
+
       if (key == 'battery' && val > 10.0) {
         _ecoModeManualOverride = false;
       }
@@ -1335,6 +1388,11 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   void _updateHealthScore() {
+    try {
+      final provider = Provider.of<AppProvider>(context, listen: false);
+      if (!provider.hasRealData && !isSimulationMode) return;
+    } catch (e) {}
+
     int score = 100;
     if (hasDisease) score -= 40;
     double water = sensorData['water_level'] ?? 100.0;
@@ -1352,13 +1410,19 @@ class _MainTabControllerState extends State<MainTabController> {
     if (ph < 5.5 || ph > 6.5) score -= 10;
 
     double u1 = sensorData['u1'] ?? 50.0;
-    if (u1 < 30) score -= 25; // Sede severa afeta saúde
-    if (u1 > 90) score -= 15; // Excesso de água também
+    if (u1 < 30) score -= 25;
+    if (u1 > 90) score -= 15;
 
     if (score < 0) score = 0;
     setState(() {
       healthScore = score;
     });
+
+    try {
+      final provider = Provider.of<AppProvider>(context, listen: false);
+      provider.updateHealthScore(score);
+    } catch (e) {}
+
     _addExp(1);
     setState(() {
       if (score >= 80) {
@@ -1414,6 +1478,7 @@ class _MainTabControllerState extends State<MainTabController> {
 
   Future<void> _saveGamificationData() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('plant_health_score', healthScore);
     await prefs.setInt('plant_streak', plantStreak);
     await prefs.setInt('plant_exp', plantExp);
     await prefs.setInt('plant_level', plantLevel);
@@ -1517,6 +1582,34 @@ class _MainTabControllerState extends State<MainTabController> {
                   aiRecommendation,
                   style: TextStyle(color: textColor, fontSize: 13),
                 ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      _sendCommand('take_photo', 'analyze');
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            "Solicitando análise à Raspberry Pi...",
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.psychology, size: 18),
+                    label: const Text("SOLICITAR ANÁLISE REMOTA"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.greenAccent,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
               Row(
@@ -1733,7 +1826,6 @@ class _MainTabControllerState extends State<MainTabController> {
         }
       }
 
-      // Se for Raspberry ou Notebook, baixamos via HTTP
       final response = await http
           .get(
             Uri.parse(_captureUrl),
@@ -1869,15 +1961,11 @@ class _MainTabControllerState extends State<MainTabController> {
       setState(() {
         final random = math.Random();
 
-        // Simulação de Latência de Rede
-        if (_isNetworkSimEnabled && _networkLatency > 0) {
-          // Apenas um delay visual no log, o Timer já roda de forma assíncrona
-        }
+        if (_isNetworkSimEnabled && _networkLatency > 0) {}
 
         sensorData.forEach((key, value) {
           double newVal;
 
-          // Lógica de Cenários Climáticos
           if (_currentScenario == "Onda de Calor") {
             if (key == 't1' || key == 't2')
               newVal = 38.0 + random.nextDouble() * 5.0;
@@ -1900,7 +1988,6 @@ class _MainTabControllerState extends State<MainTabController> {
             else
               newVal = value;
           } else {
-            // Comportamento Normal
             switch (key) {
               case 'u1':
                 newVal = 20.0 + random.nextDouble() * 70.0;
@@ -1940,9 +2027,8 @@ class _MainTabControllerState extends State<MainTabController> {
             }
           }
 
-          // Simulação de Perda de Pacote
           if (_isNetworkSimEnabled && random.nextDouble() < _packetLossRate) {
-            return; // Pula a atualização deste sensor (perda de dado)
+            return;
           }
 
           final val = _processSensorValue(key, newVal);
@@ -1954,7 +2040,6 @@ class _MainTabControllerState extends State<MainTabController> {
           }
         });
 
-        // Chance de simular doença ou problemas críticos
         if (random.nextDouble() > 0.99) {
           hasDisease = !hasDisease;
           if (hasDisease) {
@@ -1965,14 +2050,13 @@ class _MainTabControllerState extends State<MainTabController> {
           }
         }
 
-        // Simular queda de bateria ou água ocasionalmente
         if (random.nextDouble() > 0.95) {
           sensorData['water_level'] =
               (sensorData['water_level'] ?? 100.0) - 5.0;
           if (sensorData['water_level']! < 0) sensorData['water_level'] = 100.0;
         }
 
-        _updateHealthScore(); // Garante que o PlantGotchi reaja
+        _updateHealthScore();
 
         if (random.nextDouble() > 0.98) {
           if (!_sentNotifications.contains("sim_anomaly")) {
@@ -2057,13 +2141,10 @@ class _MainTabControllerState extends State<MainTabController> {
       }
     });
 
-    // Sincronizar com o AppProvider para a interface Android
     try {
       final provider = Provider.of<AppProvider>(context, listen: false);
       provider.addLog(message, category: category);
-    } catch (e) {
-      // Provider não disponível no contexto atual
-    }
+    } catch (e) {}
 
     _scheduleUiRefresh(visibleTabs: {0});
   }
@@ -2450,13 +2531,16 @@ class _MainTabControllerState extends State<MainTabController> {
                 onPressed: () async {
                   if (selectedKey == null) return;
 
-                  // Mapeamento constante de pinos baseado na ID (Arduino Firmware)
                   final Map<String, dynamic> pinMap = {
-                    'u1': 'A1', 'u2': 'A2',
-                    'l1': 'A3', 'l2': 'A4',
-                    't1': 'A5', 't2': 'A6',
-                    'p1': 'A7', 'p2': 'A8', // Exemplo para p2
-                    'ec': 'A9', // Exemplo
+                    'u1': 'A1',
+                    'u2': 'A2',
+                    'l1': 'A3',
+                    'l2': 'A4',
+                    't1': 'A5',
+                    't2': 'A6',
+                    'p1': 'A7',
+                    'p2': 'A8',
+                    'ec': 'A9',
                     'water_level': 'A10',
                     'battery': 'A11',
                   };
@@ -2695,7 +2779,6 @@ class _MainTabControllerState extends State<MainTabController> {
           "O modelo está sendo treinado com GPU/CPU externa.",
         );
 
-        // Inicia o monitoramento
         Timer.periodic(const Duration(seconds: 2), (timer) async {
           if (!mounted || !isTrainingAi) {
             timer.cancel();
@@ -2738,13 +2821,11 @@ class _MainTabControllerState extends State<MainTabController> {
   Future<void> _startAiTraining() async {
     if (isTrainingAi) return;
 
-    // Se estiver usando o notebook/PC, rodamos o treino REAL no backend
     if (_isCameraSourceNotebook) {
       await _startBackendTraining();
       return;
     }
 
-    // Caso contrário, rodamos o treino simulado/local no celular
     setState(() {
       isTrainingAi = true;
       aiTrainingProgress = 0.0;
@@ -2757,16 +2838,12 @@ class _MainTabControllerState extends State<MainTabController> {
     );
 
     try {
-      // O treinamento agora roda DIRETAMENTE no celular Android/iOS.
-      // Isso utiliza Transfer Learning para adaptar o seu modelo Python (TFLite)
-      // às condições reais da sua plantação capturadas pelo app.
-
       await _aiTrainingService.startLocalTraining(
-        trainingImages: [], // Aqui passamos a lista de fotos do dataset local
+        trainingImages: [],
         onProgress: (p) {
           if (mounted) {
             setState(() => aiTrainingProgress = p);
-            // Atualiza notificação com progresso real
+
             _showTrainingNotification(
               "Treinando no Celular...",
               aiTrainingStatus,
@@ -2942,7 +3019,7 @@ class _MainTabControllerState extends State<MainTabController> {
     final savedRemoteHost = prefs.getString('remote_host') ?? "";
     final savedVideoPort = prefs.getInt('video_port') ?? 5000;
     final savedWsPort = prefs.getInt('ws_port') ?? 8765;
-    // Sanitize ports
+
     int sanitizedVideoPort = savedVideoPort;
     int sanitizedWsPort = savedWsPort;
     if (sanitizedVideoPort < 1 || sanitizedVideoPort > 65535) {
@@ -2950,31 +3027,36 @@ class _MainTabControllerState extends State<MainTabController> {
     }
     if (sanitizedWsPort < 1 || sanitizedWsPort > 65535) sanitizedWsPort = 8765;
 
-    final savedUseRemoteSsl = prefs.getBool('use_remote_ssl') == true;
+    final savedUseRemoteSsl = prefs.getBool('use_remote_ssl') ?? false;
     final savedPh = prefs.getDouble('ph_calib') ?? 0.5;
     final savedBrightness = prefs.getDouble('camera_brightness') ?? 0.0;
     final savedTargetFps = prefs.getInt('camera_target_fps') ?? 18;
-    final savedAiEnabled = prefs.getBool('ai_enabled') == true;
-    final savedCloudMode = prefs.getBool('cloud_mode') == true;
+    final savedAiEnabled = prefs.getBool('ai_enabled') ?? true;
+    final savedCloudMode = prefs.getBool('cloud_mode') ?? false;
     final savedMqttBroker =
         prefs.getString('mqtt_broker') ?? "broker.hivemq.com";
     final savedMqttPort = prefs.getInt('mqtt_port') ?? 1883;
     final savedMqttTopic =
         prefs.getString('mqtt_topic') ?? "plantguard_pro/device_ref_9921";
-    final savedAutoPumpEnabled = prefs.getBool('auto_pump_enabled') == true;
+    final savedAutoPumpEnabled = prefs.getBool('auto_pump_enabled') ?? true;
     final savedAutoPumpMode = prefs.getString('auto_pump_mode') ?? "Timer";
     final savedMoistureThreshold =
         prefs.getDouble('moisture_threshold') ?? 30.0;
     final savedAutoPumpInterval = prefs.getInt('auto_pump_interval') ?? 3600;
     final savedAutoPumpDuration = prefs.getInt('auto_pump_duration') ?? 10;
-    final savedEventRecording = prefs.getBool('event_recording') == true;
+    final savedEventRecording = prefs.getBool('event_recording') ?? false;
     final savedVoiceAssistantEnabled =
-        prefs.getBool('is_voice_assistant_enabled') == true;
+        prefs.getBool('is_voice_assistant_enabled') ?? true;
     final savedVoiceAudioResponse =
         prefs.getBool('is_voice_audio_response') ?? true;
     final savedNotificationsEnabled =
-        prefs.getBool('is_notifications_enabled') == true;
+        prefs.getBool('is_notifications_enabled') ?? true;
     final savedEcoMode = prefs.getBool('is_eco_mode_enabled') ?? false;
+    final savedHealthScore = prefs.getInt('plant_health_score') ?? 100;
+    final savedHudSensors =
+        prefs.getStringList('hud_sensors') ?? ['t1', 'u1', 'battery'];
+    final savedSlot1 = prefs.getString('widget_slot_1') ?? 't1';
+    final savedSlot2 = prefs.getString('widget_slot_2') ?? 'u1';
     final savedStreak = prefs.getInt('plant_streak') ?? 0;
     final savedExp = prefs.getInt('plant_exp') ?? 0;
     final savedLevel = prefs.getInt('plant_level') ?? 1;
@@ -3178,10 +3260,10 @@ class _MainTabControllerState extends State<MainTabController> {
         }
       } catch (e) {}
     }
-    final savedDnd = prefs.getBool('is_dnd_enabled') == true;
+    final savedDnd = prefs.getBool('is_dnd_enabled') ?? false;
     final savedDndStart = prefs.getString('dnd_start_time') ?? "22:00";
     final savedDndEnd = prefs.getString('dnd_end_time') ?? "07:00";
-    final savedBypassDnd = prefs.getBool('bypass_dnd_critical') == true;
+    final savedBypassDnd = prefs.getBool('bypass_dnd_critical') ?? true;
     _ipController.text = savedIp;
     _remoteHostController.text = savedRemoteHost;
     setState(() {
@@ -3218,6 +3300,8 @@ class _MainTabControllerState extends State<MainTabController> {
       isNotificationsEnabled = savedNotificationsEnabled;
       isVoiceAssistantEnabled = savedVoiceAssistantEnabled;
       isVoiceAudioResponseEnabled = savedVoiceAudioResponse;
+      healthScore = savedHealthScore;
+      hudSensors = List.from(savedHudSensors);
       plantStreak = savedStreak;
       plantExp = savedExp;
       plantLevel = savedLevel;
@@ -3226,6 +3310,9 @@ class _MainTabControllerState extends State<MainTabController> {
       dashboardOrder = savedDashboardOrder;
       analyticsOrder = savedAnalyticsOrder;
       controlOrder = savedControlOrder;
+      if (!controlOrder.contains('weather')) {
+        controlOrder.insert(0, 'weather');
+      }
       settingsOrder = savedSettingsOrder;
       personalizacaoOrder = savedPersonalizacaoOrder;
       funcionalidadesOrder = savedFuncionalidadesOrder;
@@ -3257,7 +3344,6 @@ class _MainTabControllerState extends State<MainTabController> {
       client.addSample(targetFpsPub!, cameraTargetFps);
     }
 
-    // Sincronizar AppProvider ao carregar configurações
     try {
       final provider = Provider.of<AppProvider>(context, listen: false);
       provider.raspIP = raspIP;
@@ -3266,7 +3352,10 @@ class _MainTabControllerState extends State<MainTabController> {
       provider.wsPort = wsPort;
       provider.isCloudMode = isCloudMode;
       provider.useRemoteSsl = useRemoteSsl;
-      provider.loadFromDb(); // Carrega diário e logs
+      provider.widgetSlot1 = savedSlot1;
+      provider.widgetSlot2 = savedSlot2;
+      provider.healthScore = healthScore;
+      provider.loadFromDb();
     } catch (e) {
       debugPrint("Provider: Erro na sincronização de configurações: $e");
     }
@@ -3336,15 +3425,19 @@ class _MainTabControllerState extends State<MainTabController> {
           .withWillQos(MqttQos.atLeastOnce);
       mqttClient!.connectionMessage = connMessage;
       try {
-        await mqttClient!.connect();
+        await mqttClient!.connect().timeout(const Duration(seconds: 5));
         if (mqttClient!.connectionStatus!.state ==
             MqttConnectionState.connected) {
           _listenToMqttUpdates();
           return;
         }
       } catch (e) {
-        print("APP: Falha no Broker $b: $e");
-        _addAlert("Falha no Broker $b. Tentando próximo...");
+        String errorMsg = e.toString();
+        if (errorMsg.contains("121")) {
+          errorMsg = "Timeout de Semáforo (Rede Local)";
+        }
+        print("APP: Falha no Broker $b: $errorMsg");
+        _addAlert("Falha no Broker $b ($errorMsg). Tentando próximo...");
       }
     }
     if (mounted) setState(() => isConnected = false);
@@ -3364,7 +3457,7 @@ class _MainTabControllerState extends State<MainTabController> {
         final rawVal = double.tryParse(pt) ?? 0.0;
         _updateSensor(sensorKey, rawVal);
         _updateHistory(sensorKey, rawVal);
-        _updateHealthScore(); // Garante que o PlantGotchi reaja
+        _updateHealthScore();
       } else {
         if (mounted) {
           setState(() {
@@ -4042,7 +4135,6 @@ class _MainTabControllerState extends State<MainTabController> {
                     spacing: 15,
                     runSpacing: 10,
                     children: [
-                      // Botão GALERIA
                       SizedBox(
                         width: 120,
                         child: ElevatedButton(
@@ -4067,7 +4159,7 @@ class _MainTabControllerState extends State<MainTabController> {
                                     setDialogState(() {
                                       capturedImagePath = path;
                                     });
-                                    // Sincronizar com Android
+
                                     try {
                                       final provider = Provider.of<AppProvider>(
                                         context,
@@ -4103,7 +4195,7 @@ class _MainTabControllerState extends State<MainTabController> {
                           ),
                         ),
                       ),
-                      // Botão RASP
+
                       SizedBox(
                         width: 120,
                         child: ElevatedButton(
@@ -4111,7 +4203,6 @@ class _MainTabControllerState extends State<MainTabController> {
                           onPressed: isCapturing
                               ? null
                               : () async {
-                                  // Pequeno atraso para permitir que o evento de clique termine
                                   await Future.delayed(
                                     const Duration(milliseconds: 50),
                                   );
@@ -4316,7 +4407,6 @@ class _MainTabControllerState extends State<MainTabController> {
                       listen: false,
                     );
 
-                    // Mostrar um feedback visual ou fechar antes para evitar duplo clique
                     Navigator.pop(context);
 
                     await provider.addDiaryNote(
@@ -4857,15 +4947,11 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   Future<void> _resetDiaryTable() async {
-    if (_database == null) return;
     try {
-      await _database!.execute('DROP TABLE IF EXISTS diary');
-      await _database!.execute(
-        'CREATE TABLE diary(id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT, timestamp INTEGER, is_reminder INTEGER DEFAULT 0, reminder_time INTEGER)',
-      );
+      await DatabaseService().clearDiary();
       await _loadDiaryFromDb();
       _addAlert("Diário resetado com sucesso");
-      print("DB: Tabela diary resetada");
+      print("DB: Tabela diary resetada via DatabaseService");
     } catch (e) {
       _addAlert("Erro ao resetar diário: $e");
     }
@@ -5370,7 +5456,6 @@ class _MainTabControllerState extends State<MainTabController> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // 1. Conteúdo de Vídeo/Câmera (Fundo)
               if (_isCameraSourceRasp)
                 Stack(
                   alignment: Alignment.center,
@@ -5456,31 +5541,50 @@ class _MainTabControllerState extends State<MainTabController> {
                   ],
                 )
               else if (_isCameraSourceNotebook)
-                FittedBox(
-                  fit: BoxFit.cover,
-                  child: Mjpeg(
-                    isLive: true,
-                    stream: _notebookUrl,
-                    error: (context, error, stack) => Container(
-                      width: 320,
-                      height: 240,
-                      color: Colors.black,
-                      child: const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.laptop, color: Colors.white24, size: 40),
-                            SizedBox(height: 8),
-                            Text(
-                              "Notebook Offline",
-                              style: TextStyle(color: Colors.white24),
-                            ),
-                          ],
+                if ((Platform.isWindows ||
+                        Platform.isMacOS ||
+                        Platform.isLinux) &&
+                    _isCameraInitialized &&
+                    _cameraController != null)
+                  FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: _cameraController!.value.previewSize?.width ?? 640,
+                      height:
+                          _cameraController!.value.previewSize?.height ?? 480,
+                      child: CameraPreview(_cameraController!),
+                    ),
+                  )
+                else
+                  FittedBox(
+                    fit: BoxFit.cover,
+                    child: Mjpeg(
+                      isLive: true,
+                      stream: _notebookUrl,
+                      error: (context, error, stack) => Container(
+                        width: 320,
+                        height: 240,
+                        color: Colors.black,
+                        child: const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.laptop,
+                                color: Colors.white24,
+                                size: 40,
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                "Notebook Offline",
+                                style: TextStyle(color: Colors.white24),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                )
+                  )
               else if (_isCameraInitialized && _cameraController != null)
                 FittedBox(
                   fit: BoxFit.cover,
@@ -5504,7 +5608,6 @@ class _MainTabControllerState extends State<MainTabController> {
                   ),
                 ),
 
-              // 2. Overlay Inferior: Nível da Planta
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -5590,7 +5693,6 @@ class _MainTabControllerState extends State<MainTabController> {
                 ),
               ),
 
-              // 3. Seletor de Fonte de Câmera (Canto Superior Direito)
               Positioned(
                 top: 10,
                 right: 10,
@@ -5629,7 +5731,12 @@ class _MainTabControllerState extends State<MainTabController> {
                       ),
                       const SizedBox(width: 8),
                       _buildSourceOption(
-                        icon: Icons.smartphone,
+                        icon:
+                            (Platform.isWindows ||
+                                Platform.isMacOS ||
+                                Platform.isLinux)
+                            ? Icons.videocam
+                            : Icons.smartphone,
                         isSelected:
                             !_isCameraSourceRasp && !_isCameraSourceNotebook,
                         isEnabled: true,
@@ -5643,7 +5750,6 @@ class _MainTabControllerState extends State<MainTabController> {
                 ),
               ),
 
-              // 4. Ícone Fullscreen (Canto Superior Esquerdo)
               Positioned(
                 top: 10,
                 left: 10,
@@ -5923,7 +6029,7 @@ class _MainTabControllerState extends State<MainTabController> {
 
     String moodText = "FELIZ";
     IconData moodIcon = Icons.sentiment_very_satisfied;
-    Color moodColor = const Color(0xFF2ECC71); // Emerald Green for forest theme
+    Color moodColor = const Color(0xFF2ECC71);
 
     if (happiness < 0.25) {
       moodText = "MORRENDO";
@@ -5947,7 +6053,7 @@ class _MainTabControllerState extends State<MainTabController> {
           behavior: HitTestBehavior.opaque,
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF050B06), // Deep forest black/green
+              color: const Color(0xFF050B06),
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: Colors.greenAccent.withValues(alpha: 0.1),
@@ -5957,7 +6063,6 @@ class _MainTabControllerState extends State<MainTabController> {
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                // Forest atmosphere (vignette/glow)
                 Positioned.fill(
                   child: Container(
                     decoration: BoxDecoration(
@@ -5965,16 +6070,14 @@ class _MainTabControllerState extends State<MainTabController> {
                         center: Alignment.center,
                         radius: 1.2,
                         colors: [
-                          const Color(
-                            0xFF1B4D2E,
-                          ).withValues(alpha: 0.3), // Mossy light
-                          const Color(0xFF050B06), // Deep darkness
+                          const Color(0xFF1B4D2E).withValues(alpha: 0.3),
+                          const Color(0xFF050B06),
                         ],
                       ),
                     ),
                   ),
                 ),
-                // Rounded Bushes covering bottom corners
+
                 Positioned(
                   bottom: -20,
                   left: -30,
@@ -5983,19 +6086,18 @@ class _MainTabControllerState extends State<MainTabController> {
                     height: 120,
                     child: Stack(
                       children: [
-                        // Left corner bush
                         Positioned(
                           left: 0,
                           bottom: 0,
                           child: _buildBushGroup(80, 100),
                         ),
-                        // Right corner bush
+
                         Positioned(
                           right: 0,
                           bottom: 0,
                           child: _buildBushGroup(100, 120),
                         ),
-                        // Center small bushes
+
                         Align(
                           alignment: Alignment.bottomCenter,
                           child: _buildBushGroup(60, 80),
@@ -6004,7 +6106,7 @@ class _MainTabControllerState extends State<MainTabController> {
                     ),
                   ),
                 ),
-                // Forest particles (floating spores/dust)
+
                 Positioned.fill(
                   child: CustomPaint(
                     painter: _ForestPainter(
@@ -6012,13 +6114,12 @@ class _MainTabControllerState extends State<MainTabController> {
                     ),
                   ),
                 ),
-                // Falling leaves
+
                 const Positioned.fill(child: _FallingLeavesEffect()),
                 Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
-                      // Header
                       Row(
                         children: [
                           Container(
@@ -6049,22 +6150,17 @@ class _MainTabControllerState extends State<MainTabController> {
                       ),
                       const SizedBox(height: 10),
 
-                      // Main Avatar Area
                       Expanded(
                         child: Stack(
-                          clipBehavior: Clip
-                              .none, // Allow speech bubble to overflow if needed
+                          clipBehavior: Clip.none,
                           alignment: Alignment.center,
                           children: [
-                            // Dynamic Aura
                             _buildPulsingAura(moodColor),
 
-                            // Plant Avatar
                             _buildPlantAvatar(happiness, moodColor, moodIcon),
 
-                            // Speech Bubble
                             Positioned(
-                              top: -5, // Move slightly higher to give more room
+                              top: -5,
                               child: _buildSpeechBubble(
                                 isDark,
                                 textColor,
@@ -6072,7 +6168,6 @@ class _MainTabControllerState extends State<MainTabController> {
                               ),
                             ),
 
-                            // Quick Stats Icons
                             _buildQuickStatusIcons(
                               moisture,
                               happiness,
@@ -6082,7 +6177,6 @@ class _MainTabControllerState extends State<MainTabController> {
                         ),
                       ),
 
-                      // Happiness Bar
                       _buildHappinessFooter(happiness, moodColor, subTextColor),
                     ],
                   ),
@@ -6237,7 +6331,6 @@ class _MainTabControllerState extends State<MainTabController> {
         clipBehavior: Clip.none,
         alignment: Alignment.bottomCenter,
         children: [
-          // Background circles for volume
           Positioned(
             bottom: 0,
             left: -width * 0.2,
@@ -6262,16 +6355,13 @@ class _MainTabControllerState extends State<MainTabController> {
               ),
             ),
           ),
-          // Main center circle
+
           Container(
             width: width,
             height: height,
             decoration: BoxDecoration(
               gradient: RadialGradient(
-                colors: [
-                  const Color(0xFF0D2B14),
-                  const Color(0xFF051408),
-                ],
+                colors: [const Color(0xFF0D2B14), const Color(0xFF051408)],
               ),
               shape: BoxShape.circle,
             ),
@@ -6299,10 +6389,7 @@ class _MainTabControllerState extends State<MainTabController> {
       child: Container(
         key: ValueKey(_plantThought),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-        constraints: const BoxConstraints(
-          maxWidth: 280, // Slightly wider to avoid clipping long words
-          minWidth: 100,
-        ),
+        constraints: const BoxConstraints(maxWidth: 280, minWidth: 100),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.8),
           borderRadius: BorderRadius.circular(24),
@@ -6457,7 +6544,7 @@ class _MainTabControllerState extends State<MainTabController> {
                 color: color,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                fontFamily: 'Courier', // Monospace-like for percentage
+                fontFamily: 'Courier',
               ),
             ),
           ],
@@ -6551,144 +6638,218 @@ class _MainTabControllerState extends State<MainTabController> {
     final isDark = widget.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white54 : Colors.black54;
-    return ReorderableListView(
-      key: key,
-      buildDefaultDragHandles: false,
-      header: Column(
-        children: [
-          if (isEcoModeEnabled)
-            Container(
-              margin: const EdgeInsets.only(bottom: 15),
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
-              decoration: BoxDecoration(
-                color: Colors.greenAccent.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(
-                  color: Colors.greenAccent.withValues(alpha: 0.5),
-                ),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.eco, color: Colors.greenAccent, size: 18),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      "MODO ECONÔMICO ATIVO: Economizando bateria da Raspberry Pi",
-                      style: TextStyle(
-                        color: Colors.greenAccent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
+    return Consumer<MonitoringProvider>(
+      builder: (context, monitoringProvider, child) {
+        final recommendation = monitoringProvider.recommendation;
+        return ReorderableListView(
+          key: key,
+          buildDefaultDragHandles: false,
+          header: Column(
+            children: [
+              if (recommendation != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 15),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 10,
+                    horizontal: 15,
+                  ),
+                  decoration: BoxDecoration(
+                    color: recommendation.shouldPostpone
+                        ? Colors.blueAccent.withValues(alpha: 0.2)
+                        : Colors.greenAccent.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: recommendation.shouldPostpone
+                          ? Colors.blueAccent.withValues(alpha: 0.5)
+                          : Colors.greenAccent.withValues(alpha: 0.5),
                     ),
                   ),
-                ],
-              ),
-            ),
-          if (isFirstAidMode)
-            Container(
-              margin: const EdgeInsets.only(bottom: 15),
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 15),
-              decoration: BoxDecoration(
-                color: Colors.orangeAccent.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(
-                  color: Colors.orangeAccent.withValues(alpha: 0.5),
+                  child: Row(
+                    children: [
+                      Icon(
+                        recommendation.shouldPostpone
+                            ? Icons.cloud
+                            : Icons.wb_sunny,
+                        color: recommendation.shouldPostpone
+                            ? Colors.blueAccent
+                            : Colors.greenAccent,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              recommendation.shouldPostpone
+                                  ? "RECOMENDAÇÃO: ADIAR IRRIGAÇÃO"
+                                  : "RECOMENDAÇÃO: IRRIGAÇÃO NORMAL",
+                              style: TextStyle(
+                                color: recommendation.shouldPostpone
+                                    ? Colors.blueAccent
+                                    : Colors.greenAccent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              recommendation.reason,
+                              style: TextStyle(
+                                color: textColor.withValues(alpha: 0.8),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.wifi_off, color: Colors.orangeAccent, size: 18),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      "MODO PRIMEIROS SOCORROS: Dados em cache",
-                      style: TextStyle(
+              if (isEcoModeEnabled)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 15),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 10,
+                    horizontal: 15,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.greenAccent.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: Colors.greenAccent.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.eco, color: Colors.greenAccent, size: 18),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "MODO ECONÔMICO ATIVO: Economizando bateria da Raspberry Pi",
+                          style: TextStyle(
+                            color: Colors.greenAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (isFirstAidMode)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 15),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 15,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: Colors.orangeAccent.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.wifi_off,
                         color: Colors.orangeAccent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
+                        size: 18,
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-      onReorder: (int oldIndex, int newIndex) async {
-        setState(() {
-          if (newIndex > oldIndex) {
-            newIndex -= 1;
-          }
-          final String item = dashboardOrder.removeAt(oldIndex);
-          dashboardOrder.insert(newIndex, item);
-        });
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setStringList('dashboard_order', dashboardOrder);
-      },
-      children: dashboardOrder.asMap().entries.map((entry) {
-        final index = entry.key;
-        final key = entry.value;
-        Widget card;
-        switch (key) {
-          case 'video':
-            card = _buildVideoCard(textColor, subTextColor, isDark);
-            break;
-          case 'health':
-            card = _buildHealthGaugeCard();
-            break;
-          case 'events':
-            card = _buildEventGallery();
-            break;
-          case 'hardware':
-            card = _buildHardwareCard(textColor);
-            break;
-          case 'fps':
-            card = _buildFpsCard(textColor, subTextColor, isDark);
-            break;
-          case 'telemetry':
-            card = _buildQuickTelemetrySection();
-            break;
-          case 'brightness':
-            card = _buildBrightnessCard(textColor, subTextColor);
-            break;
-          case 'plant3d':
-            card = _buildTamagotchiMode(textColor, subTextColor, isDark);
-            break;
-          default:
-            return SizedBox(key: ValueKey('ghost_$key'));
-        }
-        return SlideFadeTransition(
-          key: ValueKey(key),
-          index: index,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 15),
-            child: Stack(
-              children: [
-                card,
-                Positioned(
-                  top: 5,
-                  right: 5,
-                  child: ReorderableDragStartListener(
-                    index: dashboardOrder.indexOf(key),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black12,
-                        borderRadius: BorderRadius.circular(10),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "MODO PRIMEIROS SOCORROS: Dados em cache",
+                          style: TextStyle(
+                            color: Colors.orangeAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                      child: Icon(
-                        Icons.drag_indicator,
-                        size: 14,
-                        color: isDark ? Colors.white24 : Colors.black26,
-                      ),
-                    ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
+          onReorder: (int oldIndex, int newIndex) async {
+            setState(() {
+              if (newIndex > oldIndex) {
+                newIndex -= 1;
+              }
+              final String item = dashboardOrder.removeAt(oldIndex);
+              dashboardOrder.insert(newIndex, item);
+            });
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setStringList('dashboard_order', dashboardOrder);
+          },
+          children: dashboardOrder.asMap().entries.map((entry) {
+            final index = entry.key;
+            final key = entry.value;
+            Widget card;
+            switch (key) {
+              case 'video':
+                card = _buildVideoCard(textColor, subTextColor, isDark);
+                break;
+              case 'health':
+                card = _buildHealthGaugeCard();
+                break;
+              case 'events':
+                card = _buildEventGallery();
+                break;
+              case 'hardware':
+                card = _buildHardwareCard(textColor);
+                break;
+              case 'fps':
+                card = _buildFpsCard(textColor, subTextColor, isDark);
+                break;
+              case 'telemetry':
+                card = _buildQuickTelemetrySection();
+                break;
+              case 'brightness':
+                card = _buildBrightnessCard(textColor, subTextColor);
+                break;
+              case 'plant3d':
+                card = _buildTamagotchiMode(textColor, subTextColor, isDark);
+                break;
+              default:
+                return SizedBox(key: ValueKey('ghost_$key'));
+            }
+            return SlideFadeTransition(
+              key: ValueKey(key),
+              index: index,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 15),
+                child: Stack(
+                  children: [
+                    card,
+                    Positioned(
+                      top: 5,
+                      right: 5,
+                      child: ReorderableDragStartListener(
+                        index: dashboardOrder.indexOf(key),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.black12,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.drag_indicator,
+                            size: 14,
+                            color: isDark ? Colors.white24 : Colors.black26,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
         );
-      }).toList(),
+      },
     );
   }
 
@@ -6821,7 +6982,7 @@ class _MainTabControllerState extends State<MainTabController> {
                       note,
                       onDelete: () async {
                         await provider.deleteDiaryNote(note['id']);
-                        // Também atualizar o estado local para garantir sincronia em ambas as visões
+
                         await _loadDiaryFromDb();
                       },
                     ),
@@ -7131,6 +7292,90 @@ class _MainTabControllerState extends State<MainTabController> {
         final key = entry.value;
         Widget card;
         switch (key) {
+          case 'weather':
+            card = Consumer<MonitoringProvider>(
+              builder: (context, provider, child) {
+                final weather = provider.weatherData;
+                return _buildInteractiveCard(
+                  onTap: () => provider.checkSmartIrrigation(-23.55, -46.63),
+                  child: Padding(
+                    padding: const EdgeInsets.all(15),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.cloud_queue,
+                                  color: Colors.blueAccent,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  "Clima Local",
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (weather != null)
+                              Text(
+                                weather.condition,
+                                style: const TextStyle(
+                                  color: Colors.blueAccent,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 15),
+                        if (weather == null)
+                          const Center(
+                            child: Text(
+                              "Carregando dados meteorológicos...",
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                          )
+                        else
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildWeatherStat(
+                                Icons.thermostat,
+                                "${weather.temperature.toStringAsFixed(1)}°C",
+                                "Temp",
+                                Colors.orangeAccent,
+                              ),
+                              _buildWeatherStat(
+                                Icons.water_drop,
+                                "${weather.humidity.toStringAsFixed(0)}%",
+                                "Hum Ar",
+                                Colors.blueAccent,
+                              ),
+                              _buildWeatherStat(
+                                Icons.umbrella,
+                                "${weather.rainProbability.toStringAsFixed(0)}%",
+                                "Chuva",
+                                Colors.lightBlueAccent,
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+            break;
           case 'diagnosis':
             card = _buildInteractiveCard(
               onTap: _showHealthDiagnosis,
@@ -8421,11 +8666,11 @@ class _MainTabControllerState extends State<MainTabController> {
                   if (mounted) {
                     setState(() {
                       isEcoModeEnabled = v;
-                      // Se o usuário desligar manualmente enquanto a bateria estiver baixa, ativa o override
+
                       if (!v && (sensorData['battery'] ?? 100.0) <= 10.0) {
                         _ecoModeManualOverride = true;
                       }
-                      // Se o usuário ligar manualmente, remove o override
+
                       if (v) {
                         _ecoModeManualOverride = false;
                       }
@@ -8843,6 +9088,7 @@ class _MainTabControllerState extends State<MainTabController> {
                                         } else {
                                           hudSensors.remove(key);
                                         }
+                                        _saveSettings();
                                       });
                                     });
                                   }
@@ -9878,6 +10124,37 @@ class _MainTabControllerState extends State<MainTabController> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildWeatherStat(
+    IconData icon,
+    String value,
+    String label,
+    Color color,
+  ) {
+    final isDark = widget.isDarkMode;
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            color: isDark ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+      ],
     );
   }
 
@@ -11017,17 +11294,40 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   Widget _buildClimateBackground(bool isDark) {
+
+
+
     if (!isSimulationMode) {
-      return Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDark
-                ? [const Color(0xFF0F172A), const Color(0xFF020617)]
-                : [const Color(0xFFF1F5F9), const Color(0xFFE2E8F0)],
+      final gradientColors = isDark
+          ? [const Color(0xFF064E3B), const Color(0xFF020617)]
+          : [const Color(0xFFF0FDF4), const Color(0xFFF1F5F9)];
+
+      return Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: gradientColors,
+              ),
+            ),
           ),
-        ),
+          Positioned.fill(
+            child: _LeafShaderWidget(isDark: isDark, scenario: "Normal"),
+          ),
+
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.03,
+              child: Icon(
+                Icons.eco,
+                size: 400,
+                color: isDark ? Colors.white : Colors.black,
+              ),
+            ),
+          ),
+        ],
       );
     }
 
@@ -11058,17 +11358,11 @@ class _MainTabControllerState extends State<MainTabController> {
         weatherIcon = Icons.thunderstorm;
         break;
       default:
-        return Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDark
-                  ? [const Color(0xFF0F172A), const Color(0xFF020617)]
-                  : [const Color(0xFFF1F5F9), const Color(0xFFE2E8F0)],
-            ),
-          ),
-        );
+        baseColor = Colors.greenAccent.withValues(alpha: 0.05);
+        gradientColors = isDark
+            ? [const Color(0xFF064E3B), const Color(0xFF020617)]
+            : [const Color(0xFFF0FDF4), const Color(0xFFF1F5F9)];
+        weatherIcon = Icons.eco;
     }
 
     return Stack(
@@ -11082,11 +11376,19 @@ class _MainTabControllerState extends State<MainTabController> {
             ),
           ),
         ),
-        // Efeito visual de "Shader" simplificado usando Opacity e Icons
+
+        Positioned.fill(
+          child: _LeafShaderWidget(isDark: isDark, scenario: _currentScenario),
+        ),
+
         Positioned.fill(
           child: Opacity(
-            opacity: 0.05,
-            child: Icon(weatherIcon, size: 400, color: Colors.white),
+            opacity: 0.03,
+            child: Icon(
+              weatherIcon,
+              size: 400,
+              color: isDark ? Colors.white : Colors.black,
+            ),
           ),
         ),
         if (_currentScenario == "Tempestade")
@@ -11096,19 +11398,18 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   Widget _buildRainEffect() {
-    return const IgnorePointer(
-      child: Stack(
-        children: [
-          // Aqui poderíamos adicionar partículas de chuva reais
+    return const IgnorePointer(child: Stack(children: [
+
         ],
-      ),
-    );
+      ));
   }
 
   Widget _buildSimulationBubble() {
     if (!isSimulationMode) return const SizedBox.shrink();
     final minutes = (_simulationSeconds ~/ 60).toString().padLeft(2, '0');
     final seconds = (_simulationSeconds % 60).toString().padLeft(2, '0');
+    final isDark = widget.isDarkMode;
+
     return Positioned(
       left: _simulationBubblePos.dx,
       top: _simulationBubblePos.dy,
@@ -11129,31 +11430,51 @@ class _MainTabControllerState extends State<MainTabController> {
           );
         },
         child: Container(
-          width: 60,
-          height: 60,
+          width: 70,
+          height: 70,
           decoration: BoxDecoration(
-            color: Colors.greenAccent.withValues(alpha: 0.8),
             shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [
+                Colors.greenAccent.withValues(alpha: 0.9),
+                Colors.green.withValues(alpha: 0.7),
+              ],
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.greenAccent.withValues(alpha: 0.4),
-                blurRadius: 10,
-                spreadRadius: 1,
+                blurRadius: 15,
+                spreadRadius: 2,
               ),
             ],
-            border: Border.all(color: Colors.white, width: 1.5),
+            border: Border.all(
+              color: isDark ? Colors.white30 : Colors.black12,
+              width: 1,
+            ),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              const Icon(Icons.stop, color: Colors.white, size: 16),
-              Text(
-                "$minutes:$seconds",
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 10,
-                ),
+              _buildPulseEffect(),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.pause_circle_filled,
+                    color: isDark ? Colors.white : Colors.black87,
+                    size: 20,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    "$minutes:$seconds",
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                      fontFamily: 'Courier',
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -11161,6 +11482,154 @@ class _MainTabControllerState extends State<MainTabController> {
       ),
     );
   }
+
+  Widget _buildPulseEffect() {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1.0, end: 1.2),
+      duration: const Duration(seconds: 1),
+      curve: Curves.easeInOutSine,
+      builder: (context, value, child) {
+        return Container(
+          width: 70 * value,
+          height: 70 * value,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.greenAccent.withValues(alpha: 0.2),
+              width: 2,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LeafShaderWidget extends StatefulWidget {
+  final bool isDark;
+  final String scenario;
+  const _LeafShaderWidget({required this.isDark, required this.scenario});
+
+  @override
+  State<_LeafShaderWidget> createState() => _LeafShaderWidgetState();
+}
+
+class _LeafShaderWidgetState extends State<_LeafShaderWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 20),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return CustomPaint(
+          painter: _LeafShaderPainter(
+            progress: _controller.value,
+            isDark: widget.isDark,
+            scenario: widget.scenario,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LeafShaderPainter extends CustomPainter {
+  final double progress;
+  final bool isDark;
+  final String scenario;
+
+  _LeafShaderPainter({
+    required this.progress,
+    required this.isDark,
+    required this.scenario,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    final random = math.Random(42);
+
+    Color leafColor;
+    switch (scenario) {
+      case "Onda de Calor":
+        leafColor = isDark
+            ? Colors.orange.withValues(alpha: 0.1)
+            : Colors.orange.withValues(alpha: 0.05);
+        break;
+      case "Geada":
+        leafColor = isDark
+            ? Colors.blue.withValues(alpha: 0.1)
+            : Colors.blue.withValues(alpha: 0.05);
+        break;
+      case "Tempestade":
+        leafColor = isDark
+            ? Colors.indigo.withValues(alpha: 0.1)
+            : Colors.indigo.withValues(alpha: 0.05);
+        break;
+      default:
+        leafColor = isDark
+            ? Colors.green.withValues(alpha: 0.1)
+            : const Color(0xFF2D5A27).withValues(alpha: 0.08);
+    }
+
+    for (int i = 0; i < 15; i++) {
+      final double x =
+          (random.nextDouble() * size.width + progress * 100) % size.width;
+      final double y =
+          (random.nextDouble() * size.height + progress * 50) % size.height;
+      final double scale = 0.5 + random.nextDouble();
+      final double rotation = random.nextDouble() * math.pi * 2 + progress * 2;
+
+      canvas.save();
+      canvas.translate(x, y);
+      canvas.rotate(rotation);
+      canvas.scale(scale);
+
+      _drawLeaf(canvas, leafColor);
+      canvas.restore();
+    }
+  }
+
+  void _drawLeaf(Canvas canvas, Color color) {
+    final paint = Paint()
+      ..color = color
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+
+    final path = Path()
+      ..moveTo(0, -20)
+      ..quadraticBezierTo(15, 0, 0, 20)
+      ..quadraticBezierTo(-15, 0, 0, -20);
+
+    canvas.drawPath(path, paint);
+
+    canvas.drawLine(
+      const Offset(0, -15),
+      const Offset(0, 15),
+      Paint()
+        ..color = color.withValues(alpha: 0.2)
+        ..strokeWidth = 1,
+    );
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
 
 class _SensorConfig {
@@ -11224,7 +11693,7 @@ class _LeafParticle {
 
   _LeafParticle(this.random) {
     reset();
-    y = random.nextDouble() * 400; // Start at random height initially
+    y = random.nextDouble() * 400;
   }
 
   void reset() {
@@ -11288,10 +11757,8 @@ class _ForestPainter extends CustomPainter {
       final y = random.nextDouble() * size.height;
       final radius = random.nextDouble() * 2.5;
 
-      // Draw organic particles (spores/fireflies)
       canvas.drawCircle(Offset(x, y), radius, paint);
 
-      // Add a tiny core for some
       if (random.nextBool()) {
         canvas.drawCircle(
           Offset(x, y),

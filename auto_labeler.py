@@ -10,6 +10,7 @@ def get_leaf_bbox(image_path):
     if img is None:
         return None
     h, w = img.shape[:2]
+
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     lower_green = np.array([35, 20, 20])
     upper_green = np.array([85, 255, 255])
@@ -22,8 +23,10 @@ def get_leaf_bbox(image_path):
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
     if not contours:
         return 0.5, 0.5, 0.7, 0.7
+
     largest_contour = max(contours, key=cv2.contourArea)
     x, y, bw, bh = cv2.boundingRect(largest_contour)
     x_center = (x + bw / 2) / w
@@ -34,6 +37,7 @@ def get_leaf_bbox(image_path):
     y_center = max(0, min(1, y_center))
     width = max(0.1, min(1, width))
     height = max(0.1, min(1, height))
+    
     return x_center, y_center, width, height
 def auto_label_dataset(base_path):
     """

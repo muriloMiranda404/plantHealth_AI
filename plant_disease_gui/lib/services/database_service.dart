@@ -83,4 +83,12 @@ class DatabaseService {
     final db = await database;
     return await db.query('events', orderBy: 'timestamp DESC', limit: limit);
   }
+
+  Future<void> clearDiary() async {
+    final db = await database;
+    await db.execute('DROP TABLE IF EXISTS diary');
+    await db.execute(
+      'CREATE TABLE diary(id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT, timestamp INTEGER, is_reminder INTEGER DEFAULT 0, reminder_time INTEGER, image_path TEXT)',
+    );
+  }
 }

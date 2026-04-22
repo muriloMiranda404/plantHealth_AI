@@ -71,6 +71,8 @@ class AppProvider with ChangeNotifier {
   bool hasDisease = false;
   double confidence = 0.0;
   int healthScore = 100;
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
 
   String widgetSlot1 = 't1';
   String widgetSlot2 = 'u1';
@@ -100,7 +102,7 @@ class AppProvider with ChangeNotifier {
     };
     await _db.insertDiary(data);
 
-    // Agendar notificação apenas no Android/iOS
+
     if (isReminder &&
         reminderTime != null &&
         (Platform.isAndroid || Platform.isIOS)) {
@@ -117,8 +119,12 @@ class AppProvider with ChangeNotifier {
     await loadFromDb();
   }
 
+  bool _hasRealData = false;
+  bool get hasRealData => _hasRealData;
+
   void updateSensor(String key, double value) {
     if (sensorData.containsKey(key)) {
+      _hasRealData = true;
       sensorData[key] = value;
       _updateHistory(key, value);
       _updateWidgetData();
@@ -128,6 +134,9 @@ class AppProvider with ChangeNotifier {
 
   void _updateWidgetData() {
     if (Platform.isAndroid || Platform.isIOS) {
+
+      _syncAndroidWidget();
+
       HomeWidget.saveWidgetData<String>(
         'widget_status',
         "Status: $plantStatus",
@@ -149,10 +158,13 @@ class AppProvider with ChangeNotifier {
         name: 'PlantGuardWidgetProvider',
         androidName: 'PlantGuardWidgetProvider',
       );
-    } else if (Platform.isWindows) {
-      // No Windows, a lógica de slots já está pronta para ser consumida pela UI
-      // de configurações que unificamos no main.dart.
     }
+  }
+
+  Future<void> _syncAndroidWidget() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('widget_slot_1', widgetSlot1);
+    await prefs.setString('widget_slot_2', widgetSlot2);
   }
 
   String _getSensorLabel(String key) {
@@ -209,10 +221,21 @@ class AppProvider with ChangeNotifier {
     }
   }
 
-  void setWidgetSlots(String slot1, String slot2) {
+  Future<void> setWidgetSlots(String slot1, String slot2) async {
     widgetSlot1 = slot1;
     widgetSlot2 = slot2;
+    await _syncAndroidWidget();
     _updateWidgetData();
+    notifyListeners();
+  }
+
+  Future<void> updateHealthScore(int score) async {
+
+    if (!_hasRealData && score != healthScore) return;
+
+    healthScore = score;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('plant_health_score', score);
     notifyListeners();
   }
 
@@ -237,6 +260,13 @@ class AppProvider with ChangeNotifier {
   }
 
   Future<void> loadFromDb() async {
+    final prefs = await SharedPreferences.getInstance();
+    widgetSlot1 = prefs.getString('widget_slot_1') ?? 't1';
+    widgetSlot2 = prefs.getString('widget_slot_2') ?? 'u1';
+    healthScore = prefs.getInt('plant_health_score') ?? 100;
+    _isInitialized = true;
+    _updateWidgetData();
+
     final historyData = await _db.getHistory();
     for (var item in historyData) {
       final key = item['sensor_key'] as String;
@@ -257,5 +287,5 @@ class AppProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // More methods to be added as needed...
+
 }

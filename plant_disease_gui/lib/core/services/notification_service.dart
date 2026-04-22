@@ -89,7 +89,7 @@ class NotificationService {
     }
 
     if (!_isInitialized) await init();
-    if (!_isInitialized) return; // Se falhou ao inicializar, não tenta mostrar
+    if (!_isInitialized) return;
 
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
@@ -111,9 +111,10 @@ class NotificationService {
               (fullScreenIntent
                   ? AndroidNotificationCategory.alarm
                   : AndroidNotificationCategory.status),
-          audioAttributesUsage: fullScreenIntent
-              ? AudioAttributesUsage.alarm
-              : AudioAttributesUsage.notification,
+          audioAttributesUsage:
+              fullScreenIntent
+                  ? AudioAttributesUsage.alarm
+                  : AudioAttributesUsage.notification,
           visibility: NotificationVisibility.public,
           ticker: title,
         );
