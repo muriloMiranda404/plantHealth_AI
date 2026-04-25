@@ -26,5 +26,4 @@ class SettingsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Add other update methods as needed...
 }

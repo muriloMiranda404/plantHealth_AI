@@ -4,7 +4,6 @@ import json
 from ultralytics import YOLO
 
 def on_train_epoch_end(trainer):
-    """Callback para registrar o progresso de cada época em um arquivo JSON."""
     progress_file = "training_progress.json"
     epoch = trainer.epoch + 1
     total_epochs = trainer.epochs
@@ -22,7 +21,6 @@ def on_train_epoch_end(trainer):
     print(f" [PROGRESS] {data['status']} - {progress*100:.1f}%")
 
 def train_model():
-    # Limpa progresso anterior
     if os.path.exists("training_progress.json"):
         os.remove("training_progress.json")
         
@@ -38,22 +36,27 @@ def train_model():
 
     print("--- INICIANDO TREINAMENTO INTELIGENTE ---")
     
-    # Adiciona o callback
     model.add_callback("on_train_epoch_end", on_train_epoch_end)
     
+    import torch
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"--- USANDO DISPOSITIVO: {device.upper()} ---")
+
     results = model.train(
         data=data_path,
-        epochs=10,
-        imgsz=320,
-        batch=16,
+        epochs=100,
+        imgsz=416,
+        batch=-1,
+        patience=20,
+        workers=8,
+        device=device,
+        amp=True,
         name='plant_disease_model',
-        device='cpu',
         verbose=True
     )
     
     print("--- TREINAMENTO CONCLUÍDO ---")
     
-    # Finaliza o arquivo de progresso
     with open("training_progress.json", "w") as f:
         json.dump({"status": "Concluído", "progress": 1.0}, f)
         
@@ -61,8 +64,15 @@ def train_model():
     target_best_path = os.path.join(os.getcwd(), 'best.pt')
     
     if os.path.exists(generated_best_path):
-        shutil.copy(generated_best_path, target_best_path)
-        print(f" [+] SUCESSO: O melhor modelo foi copiado para: {target_best_path}")
+        try:
+            if os.path.exists(target_best_path):
+                os.remove(target_best_path)
+            
+            shutil.copy2(generated_best_path, target_best_path)
+            print(f" [+] SUCESSO: O melhor modelo foi copiado para: {target_best_path}")
+        except Exception as e:
+            print(f" [!] ERRO ao copiar modelo: {e}")
+            print(f" [i] Você pode encontrar o modelo manualmente em: {generated_best_path}")
     else:
         print(f" [!] AVISO: Não foi possível encontrar o arquivo gerado em {generated_best_path}")
 

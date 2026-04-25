@@ -2,13 +2,17 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <EEPROM.h>
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
 
-#define SS_PIN 10
+#define SS_PIN 53
 #define RST_PIN 9
+
 MFRC522 rfid(SS_PIN, RST_PIN);
+LiquidCrystal_I2C lcd(0x27, 16, 2); 
 
 struct SensorConfig {
-  char id[4];
+  char id[5]; 
   int pin;
   bool enabled;
 };
@@ -20,20 +24,87 @@ SensorConfig sensors[] = {
   {"l2", A4, true},
   {"t1", A5, true},
   {"t2", A6, true},
-  {"p1", A7, true}
+  {"v1", A7, true},
+  {"ec1", A8, true},
+  {"wl1", A9, true}
 };
-const int numSensors = 7;
+
+const int numSensors = 9;
 
 byte masterUID[4] = {0x00, 0x00, 0x00, 0x00};
 bool isAccessGranted = false;
 bool registerMode = false;
 
-const int PIN_POT         = A0; 
-const int PIN_LUZ_FISICA  = 6;  
 const int PIN_LED_STATUS  = 7;  
 const int PIN_BOMBA       = 8; 
+const int PIN_POT         = A10; 
 
-int currentLightIntensity = 0;
+int currentMenuPage = 0;
+bool pumpDesiredState = false; 
+float currentPumpPWM = 0;      
+unsigned long lastLcdUpdate = 0;
+unsigned long lastPageChange = 0;
+unsigned long lastRampUpdate = 0;
+
+const int WATER_LEVEL_MIN = 15; 
+const int RAMP_INTERVAL = 30;   
+const float RAMP_STEP = 2.0;    
+
+void updateLCD() {
+  if (millis() - lastPageChange > 3000) { 
+    currentMenuPage = (currentMenuPage + 1) % 4;
+    lastPageChange = millis();
+    lcd.clear();
+  }
+
+  if (millis() - lastLcdUpdate > 500) {
+    lastLcdUpdate = millis();
+    
+    switch (currentMenuPage) {
+      case 0: 
+        lcd.setCursor(0, 0);
+        lcd.print("PlantGuard Mega");
+        lcd.setCursor(0, 1);
+        lcd.print(isAccessGranted ? "Acesso: OK" : "Acesso: BLOQ");
+        break;
+      case 1:  
+        lcd.setCursor(0, 0);
+        lcd.print("U1:"); lcd.print(analogRead(A1));
+        lcd.print(" U2:"); lcd.print(analogRead(A2));
+        lcd.setCursor(0, 1);
+        lcd.print("L1:"); lcd.print(analogRead(A3));
+        lcd.print(" L2:"); lcd.print(analogRead(A4));
+        break;
+      case 2: 
+        lcd.setCursor(0, 0);
+        lcd.print("T1:"); lcd.print(analogRead(A5));
+        lcd.print(" T2:"); lcd.print(analogRead(A6));
+        lcd.setCursor(0, 1);
+        lcd.print("V:"); lcd.print(analogRead(A7));
+        lcd.print(" EC:"); lcd.print(analogRead(A8));
+        break;
+      case 3: 
+        lcd.setCursor(0, 0);
+        int waterLevel = map(analogRead(A9), 0, 1023, 0, 100);
+        if (waterLevel < WATER_LEVEL_MIN) {
+          lcd.print("AVISO: SEM AGUA ");
+        } else {
+          lcd.print("Pot. Bomba:");
+          lcd.print(map(analogRead(PIN_POT), 0, 1023, 0, 100));
+          lcd.print("%");
+        }
+        lcd.setCursor(0, 1);
+        if (!isAccessGranted) {
+          lcd.print("Bomba: TRAVADA ");
+        } else if (waterLevel < WATER_LEVEL_MIN) {
+          lcd.print("Bomba: EMERGENC.");
+        } else {
+          lcd.print("Bomba: PRONTA  ");
+        }
+        break;
+    }
+  }
+}
 
 void saveConfigs() {
   int addr = 0;
@@ -58,13 +129,16 @@ void setup() {
   SPI.begin();
   rfid.PCD_Init();
 
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Iniciando...");
+
   pinMode(PIN_BOMBA, OUTPUT);
-  pinMode(PIN_LUZ_FISICA, OUTPUT);
   pinMode(PIN_LED_STATUS, OUTPUT);
 
   digitalWrite(PIN_BOMBA, LOW);
   digitalWrite(PIN_LED_STATUS, LOW);
-  analogWrite(PIN_LUZ_FISICA, 0);
 
   loadConfigs();
 
@@ -72,6 +146,8 @@ void setup() {
 }
 
 void loop() {
+  updateLCD();
+  
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     if (registerMode) {
       for (byte i = 0; i < 4; i++) masterUID[i] = rfid.uid.uidByte[i];
@@ -105,12 +181,6 @@ void loop() {
     
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
-  }
-
-  if (isAccessGranted) {
-    int potVal = analogRead(PIN_POT);
-    currentLightIntensity = map(potVal, 0, 1023, 0, 255);
-    analogWrite(PIN_LUZ_FISICA, currentLightIntensity);
   }
 
   if (Serial.available() > 0) {
@@ -158,9 +228,29 @@ void loop() {
         }
       }
     } else {
-      if (input == "B1") digitalWrite(PIN_BOMBA, HIGH);
-      else if (input == "B0") digitalWrite(PIN_BOMBA, LOW);
+      if (input == "B1") pumpDesiredState = true;
+      else if (input == "B0") pumpDesiredState = false;
     }
+  }
+
+  int waterLevel = map(analogRead(A9), 0, 1023, 0, 100);
+  int targetPWM = 0;
+
+  if (isAccessGranted && pumpDesiredState && (waterLevel >= WATER_LEVEL_MIN)) {
+    int potVal = analogRead(PIN_POT);
+    targetPWM = map(potVal, 0, 1023, 0, 255);
+  }
+
+  if (millis() - lastRampUpdate > RAMP_INTERVAL) {
+    lastRampUpdate = millis();
+    if (currentPumpPWM < targetPWM) {
+      currentPumpPWM += RAMP_STEP;
+      if (currentPumpPWM > targetPWM) currentPumpPWM = targetPWM;
+    } else if (currentPumpPWM > targetPWM) {
+      currentPumpPWM -= RAMP_STEP;
+      if (currentPumpPWM < targetPWM) currentPumpPWM = targetPWM;
+    }
+    analogWrite(PIN_BOMBA, (int)currentPumpPWM);
   }
 
   StaticJsonDocument<512> report;
@@ -172,14 +262,18 @@ void loop() {
       if (sensors[i].id[0] == 'u') converted = map(val, 1023, 200, 0, 100);
       else if (sensors[i].id[0] == 'l') converted = map(val, 0, 1023, 0, 100);
       else if (sensors[i].id[0] == 't') converted = (val * 5.0 * 100.0) / 1024.0;
-      else if (sensors[i].id[0] == 'p') converted = map(val, 0, 1023, 0, 1400) / 100.0;
+      else if (strcmp(sensors[i].id, "v1") == 0) converted = (val * 5.0 / 1024.0) * 5.0; 
+      else if (strcmp(sensors[i].id, "ec1") == 0) converted = map(val, 0, 1023, 0, 5000) / 1000.0; 
+      else if (strcmp(sensors[i].id, "wl1") == 0) converted = map(val, 0, 1023, 0, 100); 
       
       report[sensors[i].id] = converted;
     }
   }
 
   report["locked"] = !isAccessGranted;
-  report["light_int"] = map(currentLightIntensity, 0, 255, 0, 100);
+  report["pump_state"] = pumpDesiredState;
+  report["pump_power"] = map((int)currentPumpPWM, 0, 255, 0, 100);
+  report["low_water"] = (waterLevel < WATER_LEVEL_MIN);
 
   serializeJson(report, Serial);
   Serial.println();

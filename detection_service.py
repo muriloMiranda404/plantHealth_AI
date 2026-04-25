@@ -28,7 +28,6 @@ def start_training():
         is_training = True
         try:
             print(" [AI] Iniciando script de treinamento YOLO...")
-            # Usa 'python' em vez de 'python3' pois estamos no Windows
             process = subprocess.Popen(['python', 'train_yolo.py'], 
                                      stdout=subprocess.PIPE, 
                                      stderr=subprocess.STDOUT,
@@ -66,8 +65,8 @@ def create_placeholder(msg="Aguardando Câmera..."):
     _, encoded = cv2.imencode('.jpg', img)
     return encoded.tobytes()
 output_jpeg = create_placeholder("Iniciando Sistema...")
-STREAM_WIDTH = 1280 # Full HD Width para o stream
-DETECTION_INTERVAL = 1 # Processa quase todo frame
+STREAM_WIDTH = 1280 
+DETECTION_INTERVAL = 1 
 MIN_STREAM_FPS = 10
 MAX_STREAM_FPS = 60
 DEFAULT_JPEG_QUALITY = 90
@@ -154,18 +153,16 @@ def on_fps_change(event):
     except Exception as exc:
         print(f" [STREAM] Erro ao aplicar FPS: {exc}")
 def get_best_camera():
-    # Prioridade para o notebook (índice 0) ou webcam externa (1, 2)
     test_indices = [0, 1, 2, 3]
     working_cameras = []
     print(f" [STREAM] Iniciando busca por câmeras nos índices {test_indices}...")
     for idx in test_indices:
         try:
-            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) # Melhor para Windows
+            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) 
             if not cap.isOpened():
                 cap = cv2.VideoCapture(idx)
             
             if cap.isOpened():
-                # Tenta setar uma resolução maior para evitar zoom de baixa resolução
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
                 
@@ -181,7 +178,6 @@ def get_best_camera():
         print(" [!] ERRO: Nenhuma câmera funcional detectada.")
         return 0
     
-    # Se o index 0 estiver disponível, usamos ele (Notebook)
     if 0 in working_cameras:
         print(f" [STREAM] Selecionando Câmera do Notebook (Index 0)")
         return 0
@@ -221,11 +217,10 @@ def run_detection():
     if not cap.isOpened():
         cap = cv2.VideoCapture(cam_idx)
         
-    # Força configurações de alta performance e qualidade
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    cap.set(cv2.CAP_PROP_FPS, 60) # Tenta 60 FPS no hardware
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG')) # MJPG é mais rápido para altas taxas
+    cap.set(cv2.CAP_PROP_FPS, 60) 
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG')) 
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     if not cap.isOpened():
         print(f" [!] Erro: Webcam no index {cam_idx} não pôde ser aberta.")

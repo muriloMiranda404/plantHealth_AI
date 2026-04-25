@@ -50,7 +50,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
-    _useJsAnimation = _isWebViewSupported; // Ativo por padrão no Android/iOS
+    _useJsAnimation = _isWebViewSupported; 
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -173,7 +173,6 @@ class _SplashScreenState extends State<SplashScreen>
       backgroundColor: bgColor,
       body: Stack(
         children: [
-          // Fundo com Folhas Caindo (Nativo Flutter)
           ..._leaves.map(
             (leaf) => _FallingLeaf(
               key: ValueKey('leaf_${leaf.hashCode}'),
@@ -182,7 +181,6 @@ class _SplashScreenState extends State<SplashScreen>
             ),
           ),
 
-          // Demonstração de JavaScript via WebView (Partículas em Canvas)
           if (_useJsAnimation && _isWebViewSupported && _webController != null)
             IgnorePointer(child: WebViewWidget(controller: _webController!)),
 
@@ -191,7 +189,6 @@ class _SplashScreenState extends State<SplashScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Animação Lottie de fundo para o Logo
                   Stack(
                     alignment: Alignment.center,
                     children: [

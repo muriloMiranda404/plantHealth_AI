@@ -25,7 +25,6 @@ os.environ['OPENBLAS_CORETYPE'] = 'ARMV8'
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['MKL_DEBUG_CPU_TYPE'] = '5'
 os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
-# Globais para comunicação entre processos
 ai_queue_in = mp.Queue(maxsize=1)
 ai_queue_out = mp.Queue(maxsize=1)
 mobile_queue_in = mp.Queue(maxsize=1)
@@ -80,9 +79,7 @@ class StreamHandler(BaseHTTPRequestHandler):
                 img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 
                 if img is not None:
-                    # Vamos usar a fila dedicada para o mobile para evitar conflitos com o loop principal
                     mobile_queue_in.put(img)
-                    # Espera o resultado da fila de saída
                     res = mobile_queue_out.get(timeout=10.0)
                     
                     self.send_response(200)
@@ -99,7 +96,7 @@ class StreamHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == '/analyze_mobile':
-            self.do_GET() # Reutiliza a lógica se for POST
+            self.do_GET() 
         else:
             self.send_error(404)
 def start_mjpeg_server():
@@ -175,7 +172,6 @@ def ai_process_worker(queue_in, queue_out, model_path, mob_in=None, mob_out=None
 
     while True:
         try:
-            # Prioridade para o mobile se houver algo na fila
             current_queue_in = queue_in
             current_queue_out = queue_out
             is_mobile = False
@@ -210,7 +206,6 @@ def ai_process_worker(queue_in, queue_out, model_path, mob_in=None, mob_out=None
                     print(f" [IA] Erro na inferência Edge Impulse: {e}")
 
             if not detected_boxes and model:
-                # Se for mobile, podemos usar uma resolução maior para melhor precisão
                 imgsz = 640 if is_mobile else 320
                 small_frame = cv2.resize(frame, (imgsz, imgsz))
                 with torch.no_grad():
@@ -462,7 +457,7 @@ if __name__ == "__main__":
                         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                         cap.set(cv2.CAP_PROP_BRIGHTNESS, (CAMERA_BRIGHTNESS + 100) / 200.0)
-                        cap.set(cv2.CAP_PROP_FPS, 30) # Aumentado para 30 FPS base
+                        cap.set(cv2.CAP_PROP_FPS, 30) 
                     else:
                         with frame_lock:
                             current_encoded_frame = create_test_frame("BUSCANDO CÂMERA...")

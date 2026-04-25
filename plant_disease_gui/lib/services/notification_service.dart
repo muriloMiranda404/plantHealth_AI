@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
@@ -16,6 +17,7 @@ class NotificationService {
     if (!(Platform.isAndroid || Platform.isIOS)) return;
 
     try {
+      debugPrint("NotificationService: Iniciando plugin...");
       const AndroidInitializationSettings initializationSettingsAndroid =
           AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -25,15 +27,15 @@ class NotificationService {
       await _flutterLocalNotificationsPlugin.initialize(
         initializationSettings,
         onDidReceiveNotificationResponse: (NotificationResponse response) {
-          // Handle notification tap
+          debugPrint("NotificationService: Notificação clicada!");
         },
       );
 
       _isInitialized = true;
-      print("NotificationService: Inicializado com sucesso.");
+      debugPrint("NotificationService: Inicializado com sucesso.");
     } catch (e) {
       _isInitialized = false;
-      print("NotificationService: Erro ao inicializar: $e");
+      debugPrint("NotificationService: Erro ao inicializar: $e");
     }
   }
 
@@ -81,54 +83,55 @@ class NotificationService {
     bool fullScreenIntent = false,
     AndroidNotificationCategory? category,
   }) async {
-    if (!(Platform.isAndroid || Platform.isIOS)) {
-      print(
-        "NotificationService: Notificações não suportadas nesta plataforma.",
-      );
-      return;
+    if (!(Platform.isAndroid || Platform.isIOS)) return;
+
+    if (!_isInitialized) {
+      debugPrint("NotificationService: Re-tentando inicialização...");
+      await init();
     }
 
-    if (!_isInitialized) await init();
-    if (!_isInitialized) return; // Se falhou ao inicializar, não tenta mostrar
+    try {
+      final AndroidNotificationDetails androidPlatformChannelSpecifics =
+          AndroidNotificationDetails(
+            channelId,
+            channelName,
+            importance: importance,
+            priority: priority,
+            showWhen: true,
+            onlyAlertOnce: onlyAlertOnce,
+            enableVibration: true,
+            playSound: true,
+            channelShowBadge: true,
+            showProgress: showProgress,
+            maxProgress: maxProgress,
+            progress: progress,
+            styleInformation: BigTextStyleInformation(
+              body,
+              contentTitle: title,
+            ),
+            fullScreenIntent: fullScreenIntent,
+            category: category,
+            audioAttributesUsage: fullScreenIntent
+                ? AudioAttributesUsage.alarm
+                : AudioAttributesUsage.notification,
+            visibility: NotificationVisibility.public,
+            ticker: title,
+          );
 
-    final AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails(
-          channelId,
-          channelName,
-          importance: importance,
-          priority: priority,
-          showWhen: true,
-          onlyAlertOnce: onlyAlertOnce,
-          enableVibration: true,
-          channelShowBadge: true,
-          showProgress: showProgress,
-          maxProgress: maxProgress,
-          progress: progress,
-          styleInformation: BigTextStyleInformation(body, contentTitle: title),
-          fullScreenIntent: fullScreenIntent,
-          category:
-              category ??
-              (fullScreenIntent
-                  ? AndroidNotificationCategory.alarm
-                  : AndroidNotificationCategory.status),
-          audioAttributesUsage: fullScreenIntent
-              ? AudioAttributesUsage.alarm
-              : AudioAttributesUsage.notification,
-          visibility: NotificationVisibility.public,
-          ticker: title,
-        );
+      final NotificationDetails platformChannelSpecifics = NotificationDetails(
+        android: androidPlatformChannelSpecifics,
+      );
 
-    final NotificationDetails platformChannelSpecifics = NotificationDetails(
-      android: androidPlatformChannelSpecifics,
-    );
-
-    await _flutterLocalNotificationsPlugin.show(
-      id,
-      title,
-      body,
-      platformChannelSpecifics,
-      payload: payload,
-    );
+      await _flutterLocalNotificationsPlugin.show(
+        id,
+        title,
+        body,
+        platformChannelSpecifics,
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint("NotificationService ERROR: $e");
+    }
   }
 
   Future<void> cancelAll() async {

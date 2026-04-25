@@ -31,6 +31,7 @@ dependencies:
   flutter_tts: ^4.2.2
   image_picker: ^1.0.7
   http: ^0.13.6
+  ffi: ^2.1.2
   home_widget: ^0.9.1
   lottie: ^3.0.0
   webview_flutter: ^4.13.1
@@ -54,3 +55,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.png
+    - assets/pixel_plant_pet.png

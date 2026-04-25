@@ -32,7 +32,6 @@ class MonitoringProvider with ChangeNotifier {
 
   Future<void> checkSmartIrrigation(double lat, double lon) async {
     _recommendation = await getSmartIrrigationRecommendation(lat, lon);
-    // Fetch full weather data for the UI
     _weatherData = await getSmartIrrigationRecommendation.weatherService
         .getForecast(lat, lon);
     notifyListeners();

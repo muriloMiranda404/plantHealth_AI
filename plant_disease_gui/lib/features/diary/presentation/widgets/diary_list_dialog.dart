@@ -118,7 +118,6 @@ class _DiaryListDialogState extends State<DiaryListDialog> {
   }
 
   Widget _buildDiaryCard(BuildContext context, DiaryNote note, DiaryProvider provider) {
-    // This would ideally be a separate widget
     return Card(
       child: ListTile(
         title: Text(note.note),

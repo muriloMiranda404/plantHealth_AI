@@ -4,7 +4,6 @@ import 'dart:io';
 void main() async {
   print('--- Iniciando Cliente Dart (NT4) ---');
 
-  // Conectar ao servidor Python
   final client = NT4Client(serverBaseAddress: '127.0.0.1');
 
   const options = NT4SubscriptionOptions();
@@ -16,7 +15,7 @@ void main() async {
 
   statusSub.stream().listen((value) {
     if (value != null) {
-      print('\x1B[2J\x1B[0;0H'); // Limpa a tela no terminal
+      print('\x1B[2J\x1B[0;0H'); 
       print('=== STATUS DA PLANTA ===');
       print('Detectado: $value');
     }
@@ -28,6 +27,5 @@ void main() async {
     }
   });
 
-  // Manter o script rodando
   await ProcessSignal.sigint.watch().first;
 }

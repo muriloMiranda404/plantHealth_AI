@@ -1,11 +1,8 @@
 import os
 import cv2
 import numpy as np
+
 def get_leaf_bbox(image_path):
-    """
-    Tenta encontrar o bounding box da folha usando processamento de imagem simples.
-    Retorna (x_center, y_center, width, height) normalizados.
-    """
     img = cv2.imread(image_path)
     if img is None:
         return None
@@ -39,11 +36,8 @@ def get_leaf_bbox(image_path):
     height = max(0.1, min(1, height))
     
     return x_center, y_center, width, height
+
 def auto_label_dataset(base_path):
-    """
-    Varre as subpastas de images/train e gera arquivos .txt correspondentes
-    em labels/train, usando detecção de contorno.
-    """
     class_mapping = {
         'Apple___healthy': 3,
         'Apple___Black_rot': 2,
@@ -107,6 +101,7 @@ def auto_label_dataset(base_path):
                     except Exception as e:
                         print(f"Erro ao criar {label_name}: {e}")
     print(f"Rotulagem concluída! {labeled_count} imagens processadas.")
+
 if __name__ == "__main__":
     base_dir = r'c:\Users\erika\Downloads\teste\dataset'
     auto_label_dataset(base_dir)

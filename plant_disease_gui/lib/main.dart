@@ -1,4 +1,6 @@
 import 'dart:ui' show ImageFilter;
+import 'dart:ffi' as ffi;
+import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nt4/nt4.dart';
@@ -74,10 +76,12 @@ class PlantGuardProApp extends StatefulWidget {
 class _PlantGuardProAppState extends State<PlantGuardProApp> {
   ThemeMode _themeMode = ThemeMode.dark;
   bool _showSplash = true;
-  Color _lightColor = Colors.green;
-  Color _darkColor = Colors.greenAccent;
-  double _cardRadius = 25.0;
-  double _borderWidth = 1.5;
+  Color _lightColor = const Color(0xFF2E7D32); 
+  Color _darkColor = const Color(
+    0xFF81C784,
+  ); 
+  double _cardRadius = 20.0;
+  double _borderWidth = 1.0;
   bool _solidAppBar = false;
   double _fontSizeDelta = 0.0;
   bool _glassCards = true;
@@ -110,9 +114,11 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
       final savedFontSize = prefs.getDouble('font_size_delta') ?? 0.0;
       final savedGlassCards = prefs.getBool('glass_cards') ?? true;
       final savedGlowEffects = prefs.getBool('glow_effects') ?? true;
+      final lat = prefs.getDouble('user_lat') ?? -23.55;
+      final lon = prefs.getDouble('user_lon') ?? -46.63;
 
       if (mounted) {
-        context.read<MonitoringProvider>().checkSmartIrrigation(-23.55, -46.63);
+        context.read<MonitoringProvider>().checkSmartIrrigation(lat, lon);
         setState(() {
           _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
           if (savedLightColor != null) _lightColor = Color(savedLightColor);
@@ -205,47 +211,100 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
         useMaterial3: true,
         brightness: Brightness.light,
         colorSchemeSeed: _lightColor,
-        scaffoldBackgroundColor: const Color(0xFFF5F1E8),
+        scaffoldBackgroundColor: const Color(0xFFF9FBF9),
         appBarTheme: AppBarTheme(
           backgroundColor: _solidAppBar ? _lightColor : Colors.transparent,
           elevation: 0,
           centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: _solidAppBar ? Colors.white : Colors.black87,
+            fontSize: 20 + _fontSizeDelta,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textTheme: TextTheme(
+          displayLarge: TextStyle(
+            fontSize: 32 + _fontSizeDelta,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+          bodyLarge: TextStyle(
+            fontSize: 16 + _fontSizeDelta,
+            color: Colors.black87,
+          ),
+          bodyMedium: TextStyle(
+            fontSize: 14 + _fontSizeDelta,
+            color: Colors.black54,
+          ),
         ),
         cardTheme: CardThemeData(
           color: _glassCards
-              ? Colors.white.withValues(alpha: 0.4)
+              ? Colors.white.withValues(alpha: 0.7)
               : Colors.white,
-          elevation: _glassCards ? 0 : 2,
-          shadowColor: Colors.black.withValues(alpha: 0.1),
+          elevation: _glassCards ? 0 : 4,
+          shadowColor: Colors.black.withValues(alpha: 0.05),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_cardRadius),
-            side: BorderSide(color: Colors.black26, width: _borderWidth),
+            side: BorderSide(
+              color: Colors.black.withValues(alpha: 0.05),
+              width: _borderWidth,
+            ),
           ),
         ),
-        dividerTheme: BorderSide.none == true
-            ? null
-            : DividerThemeData(color: Colors.black26, thickness: _borderWidth),
+        iconTheme: IconThemeData(color: _lightColor, size: 24),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: _lightColor,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         colorSchemeSeed: _darkColor,
-        scaffoldBackgroundColor: const Color(0xFF0A0A0A),
+        scaffoldBackgroundColor: const Color(0xFF0F110F),
         appBarTheme: AppBarTheme(
           backgroundColor: _solidAppBar ? _darkColor : Colors.transparent,
           elevation: 0,
           centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 20 + _fontSizeDelta,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textTheme: TextTheme(
+          displayLarge: TextStyle(
+            fontSize: 32 + _fontSizeDelta,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+          bodyLarge: TextStyle(
+            fontSize: 16 + _fontSizeDelta,
+            color: Colors.white,
+          ),
+          bodyMedium: TextStyle(
+            fontSize: 14 + _fontSizeDelta,
+            color: Colors.white70,
+          ),
         ),
         cardTheme: CardThemeData(
           color: _glassCards
-              ? Colors.white.withValues(alpha: 0.05)
-              : const Color(0xFF1E1E1E),
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFF1A1C1A),
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_cardRadius),
-            side: BorderSide(color: Colors.white10, width: _borderWidth),
+            side: BorderSide(
+              color: Colors.white.withValues(alpha: 0.1),
+              width: _borderWidth,
+            ),
           ),
         ),
+        iconTheme: IconThemeData(color: _darkColor, size: 24),
       ),
       themeMode: _themeMode,
       home: _showSplash
@@ -770,6 +829,7 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   void _petPlant() {
+    HapticFeedback.mediumImpact();
     if (_isPetting) return;
     setState(() {
       _isPetting = true;
@@ -1206,7 +1266,6 @@ class _MainTabControllerState extends State<MainTabController> {
                 "Erro de Rede (Timeout 121): O sinal do Wi-Fi pode estar fraco ou a Raspberry Pi está inacessível.";
           }
           debugPrint("WS Stream Error: $errorMsg");
-
 
           Future.delayed(const Duration(seconds: 10), () {
             if (mounted && !isWebSocketConnected) {
@@ -5286,7 +5345,10 @@ class _MainTabControllerState extends State<MainTabController> {
             ),
             child: BottomNavigationBar(
               currentIndex: _selectedIndex,
-              onTap: (i) => setState(() => _selectedIndex = i),
+              onTap: (i) {
+                HapticFeedback.selectionClick();
+                setState(() => _selectedIndex = i);
+              },
               type: BottomNavigationBarType.fixed,
               backgroundColor: isDark ? const Color(0xFF0A0A0A) : Colors.white,
               selectedItemColor: Colors.green,
@@ -6263,6 +6325,15 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   Widget _buildPlantAvatar(double happiness, Color color, IconData moodIcon) {
+    return _DigitalTwin3D(
+      happiness: happiness,
+      baseColor: color,
+      isCritical: happiness < 0.25,
+      isSad: happiness >= 0.25 && happiness < 0.5,
+    );
+  }
+
+  Widget _oldPlantAvatar(double happiness, Color color, IconData moodIcon) {
     final bool isSad = happiness < 0.5;
     final bool isCritical = happiness < 0.25;
 
@@ -7297,7 +7368,12 @@ class _MainTabControllerState extends State<MainTabController> {
               builder: (context, provider, child) {
                 final weather = provider.weatherData;
                 return _buildInteractiveCard(
-                  onTap: () => provider.checkSmartIrrigation(-23.55, -46.63),
+                  onTap: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    final lat = prefs.getDouble('user_lat') ?? -23.55;
+                    final lon = prefs.getDouble('user_lon') ?? -46.63;
+                    provider.checkSmartIrrigation(lat, lon);
+                  },
                   child: Padding(
                     padding: const EdgeInsets.all(15),
                     child: Column(
@@ -7320,6 +7396,16 @@ class _MainTabControllerState extends State<MainTabController> {
                                     color: textColor,
                                     fontSize: 16,
                                   ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.location_on,
+                                    size: 16,
+                                    color: Colors.blueAccent,
+                                  ),
+                                  onPressed: () =>
+                                      _showLocationDialog(context, provider),
+                                  tooltip: "Mudar Localização",
                                 ),
                               ],
                             ),
@@ -7994,7 +8080,10 @@ class _MainTabControllerState extends State<MainTabController> {
                       ),
                       value: widget.solidAppBar,
                       activeColor: Colors.greenAccent,
-                      onChanged: (v) => widget.onSettingsChange(solidAppBar: v),
+                      onChanged: (v) {
+                        HapticFeedback.lightImpact();
+                        widget.onSettingsChange(solidAppBar: v);
+                      },
                     ),
                     const SizedBox(height: 10),
                     SwitchListTile(
@@ -8005,7 +8094,10 @@ class _MainTabControllerState extends State<MainTabController> {
                       ),
                       value: widget.glassCards,
                       activeColor: Colors.greenAccent,
-                      onChanged: (v) => widget.onSettingsChange(glassCards: v),
+                      onChanged: (v) {
+                        HapticFeedback.lightImpact();
+                        widget.onSettingsChange(glassCards: v);
+                      },
                     ),
                     const SizedBox(height: 10),
                     SwitchListTile(
@@ -8016,7 +8108,10 @@ class _MainTabControllerState extends State<MainTabController> {
                       ),
                       value: widget.glowEffects,
                       activeColor: Colors.greenAccent,
-                      onChanged: (v) => widget.onSettingsChange(glowEffects: v),
+                      onChanged: (v) {
+                        HapticFeedback.lightImpact();
+                        widget.onSettingsChange(glowEffects: v);
+                      },
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton.icon(
@@ -10127,6 +10222,53 @@ class _MainTabControllerState extends State<MainTabController> {
     );
   }
 
+  void _showLocationDialog(BuildContext context, MonitoringProvider provider) {
+    final latController = TextEditingController(text: "-23.55");
+    final lonController = TextEditingController(text: "-46.63");
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Configurar Localização"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: latController,
+              decoration: const InputDecoration(labelText: "Latitude"),
+              keyboardType: TextInputType.number,
+            ),
+            TextField(
+              controller: lonController,
+              decoration: const InputDecoration(labelText: "Longitude"),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CANCELAR"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final lat = double.tryParse(latController.text) ?? -23.55;
+              final lon = double.tryParse(lonController.text) ?? -46.63;
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setDouble('user_lat', lat);
+              await prefs.setDouble('user_lon', lon);
+              if (mounted) {
+                provider.checkSmartIrrigation(lat, lon);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("SALVAR"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildWeatherStat(
     IconData icon,
     String value,
@@ -11232,7 +11374,12 @@ class _MainTabControllerState extends State<MainTabController> {
 
     return GestureDetector(
       key: key,
-      onTap: onTap,
+      onTap: () {
+        if (onTap != null) {
+          HapticFeedback.lightImpact();
+          onTap();
+        }
+      },
       child: Container(
         height: height,
         width: double.infinity,
@@ -11294,9 +11441,6 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   Widget _buildClimateBackground(bool isDark) {
-
-
-
     if (!isSimulationMode) {
       final gradientColors = isDark
           ? [const Color(0xFF064E3B), const Color(0xFF020617)]
@@ -11771,4 +11915,168 @@ class _ForestPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+class _DigitalTwin3D extends StatefulWidget {
+  final double happiness;
+  final Color baseColor;
+  final bool isCritical;
+  final bool isSad;
+
+  const _DigitalTwin3D({
+    required this.happiness,
+    required this.baseColor,
+    this.isCritical = false,
+    this.isSad = false,
+  });
+
+  @override
+  State<_DigitalTwin3D> createState() => _DigitalTwin3DState();
+}
+
+class _DigitalTwin3DState extends State<_DigitalTwin3D>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final speedMultiplier = widget.isCritical
+            ? 2.5
+            : (widget.isSad ? 0.5 : 1.0);
+        final floatHeight = widget.isCritical ? 15.0 : 10.0;
+        final floatOffset =
+            math.sin(_controller.value * 2 * math.pi * speedMultiplier) *
+            floatHeight;
+
+        Color filterColor = Colors.transparent;
+        BlendMode blendMode = BlendMode.srcATop;
+
+        if (widget.isCritical) {
+          filterColor = Colors.redAccent.withValues(alpha: 0.3);
+        } else if (widget.isSad) {
+          filterColor = Colors.blueGrey.withValues(alpha: 0.3);
+        }
+
+        return Transform.translate(
+          offset: Offset(0, floatOffset),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (widget.happiness > 0.8)
+                Container(
+                  width: 140,
+                  height: 140,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: widget.baseColor.withValues(alpha: 0.2),
+                        blurRadius: 30,
+                        spreadRadius: 10,
+                      ),
+                    ],
+                  ),
+                ),
+              ColorFiltered(
+                colorFilter: ColorFilter.mode(filterColor, blendMode),
+                child: Image.asset(
+                  'assets/pixel_plant_pet.png',
+                  width: 150,
+                  height: 150,
+                  fit: BoxFit.contain,
+                ),
+              ),
+              if (widget.isCritical)
+                Positioned(
+                  top: 0,
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.redAccent,
+                    size: 30,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+typedef ApplyGrayscaleNative =
+    ffi.Void Function(ffi.Pointer<ffi.Uint8>, ffi.IntPtr);
+typedef ApplyGrayscaleDart = void Function(ffi.Pointer<ffi.Uint8>, int);
+
+class RustImageProcessor {
+  static final RustImageProcessor _instance = RustImageProcessor._internal();
+  factory RustImageProcessor() => _instance;
+  RustImageProcessor._internal();
+
+  ffi.DynamicLibrary? _lib;
+
+  void _loadLibrary() {
+    if (_lib != null) return;
+    try {
+      if (Platform.isWindows) {
+        _lib = ffi.DynamicLibrary.open('image_processor.dll');
+      } else if (Platform.isAndroid || Platform.isLinux) {
+        _lib = ffi.DynamicLibrary.open('libimage_processor.so');
+      } else if (Platform.isIOS || Platform.isMacOS) {
+        _lib = ffi.DynamicLibrary.open('libimage_processor.dylib');
+      }
+    } catch (e) {
+      debugPrint("Erro ao carregar biblioteca Rust: $e");
+    }
+  }
+
+  void processImageGrayscale(Uint8List bytes) {
+    _loadLibrary();
+    if (_lib == null) {
+      debugPrint("Rust FFI não disponível. Usando fallback em Dart.");
+      for (int i = 0; i < bytes.length; i += 4) {
+        if (i + 2 < bytes.length) {
+          final r = bytes[i];
+          final g = bytes[i + 1];
+          final b = bytes[i + 2];
+          final gray = ((r + g + b) ~/ 3).toInt();
+          bytes[i] = gray;
+          bytes[i + 1] = gray;
+          bytes[i + 2] = gray;
+        }
+      }
+      return;
+    }
+
+    final applyGrayscale = _lib!
+        .lookupFunction<ApplyGrayscaleNative, ApplyGrayscaleDart>(
+          'apply_grayscale',
+        );
+
+    final pointer = malloc<ffi.Uint8>(bytes.length);
+    final pointerList = pointer.asTypedList(bytes.length);
+    pointerList.setAll(0, bytes);
+
+    applyGrayscale(pointer, bytes.length);
+
+    bytes.setAll(0, pointerList);
+    malloc.free(pointer);
+  }
 }
