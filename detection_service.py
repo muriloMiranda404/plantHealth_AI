@@ -14,8 +14,8 @@ app = Flask(__name__)
 output_jpeg = None
 lock = threading.Lock()
 brightness_offset = 0
-stream_fps = 18
-jpeg_quality = 72
+stream_fps = 30
+jpeg_quality = 90
 is_training = False
 @app.route("/start_training", methods=["POST"])
 def start_training():
@@ -238,7 +238,7 @@ def run_detection():
         if not ret: break
         frame_count += 1
         if frame_count % DETECTION_INTERVAL == 0:
-            results = model.predict(frame, conf=0.20, imgsz=256, verbose=False)
+            results = model.predict(frame, conf=0.1, imgsz=640, verbose=False)
             detected_diseases = []
             is_healthy = True
             max_conf = 0.0
@@ -249,8 +249,9 @@ def run_detection():
                     label = model.names[cls]
                     conf = float(box.conf[0])
                     label_low = label.lower()
-                    is_disease = any(word in label_low for word in ['seca', 'bicolor', 'mancha', 'rot', 'rust', 'blight', 'mold', 'virus', 'doenca', 'spot'])
-                    is_healthy_label = any(word in label_low for word in ['healthy', 'saudavel', 'saudável'])
+                    
+                    is_disease = any(word in label_low for word in ['seca', 'bicolor', 'mancha', 'rot', 'rust', 'blight', 'mold', 'virus', 'doenca', 'spot', 'mildew', 'scab'])
+                    is_healthy_label = any(word in label_low for word in ['healthy', 'saudavel', 'saudável', 'leaf', 'folha', 'plant', 'planta'])
                     if not (is_disease or is_healthy_label):
                         continue 
                     if is_disease:

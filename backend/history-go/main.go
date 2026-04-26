@@ -44,7 +44,7 @@ func handleLog(w http.ResponseWriter, r *http.Request) {
 
 	mutex.Lock()
 	history = append(history, entry)
-	if len(history) > 1000 { // Limite de 1000 registros em memória para este exemplo
+	if len(history) > 1000 { 
 		history = history[1:]
 	}
 	mutex.Unlock()

@@ -76,10 +76,8 @@ class PlantGuardProApp extends StatefulWidget {
 class _PlantGuardProAppState extends State<PlantGuardProApp> {
   ThemeMode _themeMode = ThemeMode.dark;
   bool _showSplash = true;
-  Color _lightColor = const Color(0xFF2E7D32); 
-  Color _darkColor = const Color(
-    0xFF81C784,
-  ); 
+  Color _lightColor = const Color(0xFF2E7D32);
+  Color _darkColor = const Color(0xFF81C784);
   double _cardRadius = 20.0;
   double _borderWidth = 1.0;
   bool _solidAppBar = false;
@@ -114,8 +112,8 @@ class _PlantGuardProAppState extends State<PlantGuardProApp> {
       final savedFontSize = prefs.getDouble('font_size_delta') ?? 0.0;
       final savedGlassCards = prefs.getBool('glass_cards') ?? true;
       final savedGlowEffects = prefs.getBool('glow_effects') ?? true;
-      final lat = prefs.getDouble('user_lat') ?? -23.55;
-      final lon = prefs.getDouble('user_lon') ?? -46.63;
+      final lat = prefs.getDouble('user_lat') ?? -19.40782;
+      final lon = prefs.getDouble('user_lon') ?? -40.06105;
 
       if (mounted) {
         context.read<MonitoringProvider>().checkSmartIrrigation(lat, lon);
@@ -550,9 +548,9 @@ class _MainTabControllerState extends State<MainTabController> {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
       source: ImageSource.camera,
-      maxWidth: 640,
-      maxHeight: 480,
-      imageQuality: 85,
+      maxWidth: 1280,
+      maxHeight: 720,
+      imageQuality: 95,
     );
 
     if (pickedFile == null) return;
@@ -1643,34 +1641,67 @@ class _MainTabControllerState extends State<MainTabController> {
                 ),
               ),
               const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+              Column(
                 children: [
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      _sendCommand('take_photo', 'analyze');
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            "Solicitando análise à Raspberry Pi...",
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        _sendCommand('take_photo', 'analyze');
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              "Solicitando análise à Raspberry Pi...",
+                            ),
                           ),
+                        );
+                      },
+                      icon: const Icon(Icons.psychology, size: 20),
+                      label: const Text(
+                        "SOLICITAR ANÁLISE REMOTA",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.greenAccent,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                      );
-                    },
-                    icon: const Icon(Icons.psychology, size: 18),
-                    label: const Text("SOLICITAR ANÁLISE REMOTA"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.greenAccent,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _generateReport();
+                      },
+                      icon: const Icon(Icons.description, size: 20),
+                      label: const Text(
+                        "GERAR RELATÓRIO CSV",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.1),
+                        foregroundColor: Colors.greenAccent,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        side: const BorderSide(
+                          color: Colors.greenAccent,
+                          width: 1,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 25),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
@@ -1690,23 +1721,18 @@ class _MainTabControllerState extends State<MainTabController> {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("FECHAR", style: TextStyle(color: subTextColor)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.greenAccent,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                "FECHAR",
+                style: TextStyle(
+                  color: subTextColor,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
               ),
             ),
-            onPressed: () {
-              Navigator.pop(context);
-              _generateReport();
-            },
-            child: const Text("RELATÓRIO CSV"),
           ),
         ],
       ),
@@ -1836,6 +1862,17 @@ class _MainTabControllerState extends State<MainTabController> {
         }
         final path = p.join(directory.path, filename);
         await file.copy(path);
+
+        // Notificar a galeria imediatamente via MethodChannel
+        try {
+          const platform = MethodChannel(
+            'com.example.plant_disease_gui/gallery',
+          );
+          await platform.invokeMethod('scanFile', {'path': path});
+          debugPrint("MediaScanner notificado para o caminho: $path");
+        } catch (e) {
+          debugPrint("Erro ao notificar MediaScanner: $e");
+        }
 
         _addAlert("FOTO SALVA NA GALERIA: $filename", category: 'actions');
         ScaffoldMessenger.of(context).showSnackBar(
@@ -7370,8 +7407,8 @@ class _MainTabControllerState extends State<MainTabController> {
                 return _buildInteractiveCard(
                   onTap: () async {
                     final prefs = await SharedPreferences.getInstance();
-                    final lat = prefs.getDouble('user_lat') ?? -23.55;
-                    final lon = prefs.getDouble('user_lon') ?? -46.63;
+                    final lat = prefs.getDouble('user_lat') ?? -19.40782;
+                    final lon = prefs.getDouble('user_lon') ?? -40.06105;
                     provider.checkSmartIrrigation(lat, lon);
                   },
                   child: Padding(
@@ -10223,8 +10260,8 @@ class _MainTabControllerState extends State<MainTabController> {
   }
 
   void _showLocationDialog(BuildContext context, MonitoringProvider provider) {
-    final latController = TextEditingController(text: "-23.55");
-    final lonController = TextEditingController(text: "-46.63");
+    final latController = TextEditingController(text: "-19.40782");
+    final lonController = TextEditingController(text: "-40.06105");
 
     showDialog(
       context: context,
@@ -10252,8 +10289,8 @@ class _MainTabControllerState extends State<MainTabController> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final lat = double.tryParse(latController.text) ?? -23.55;
-              final lon = double.tryParse(lonController.text) ?? -46.63;
+              final lat = double.tryParse(latController.text) ?? -19.40782;
+              final lon = double.tryParse(lonController.text) ?? -40.06105;
               final prefs = await SharedPreferences.getInstance();
               await prefs.setDouble('user_lat', lat);
               await prefs.setDouble('user_lon', lon);
@@ -11998,7 +12035,9 @@ class _DigitalTwin3DState extends State<_DigitalTwin3D>
               ColorFiltered(
                 colorFilter: ColorFilter.mode(filterColor, blendMode),
                 child: Image.asset(
-                  'assets/pixel_plant_pet.png',
+                  widget.isSad || widget.isCritical
+                      ? 'assets/sad_pixel_plant.png'
+                      : 'assets/pixel_plant_pet.png',
                   width: 150,
                   height: 150,
                   fit: BoxFit.contain,

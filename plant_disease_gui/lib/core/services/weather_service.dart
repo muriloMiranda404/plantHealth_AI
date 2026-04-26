@@ -71,12 +71,40 @@ class WeatherService {
   }
 
   String _mapWeatherCode(int code) {
-    if (code == 0) return "Céu Limpo";
-    if (code < 3) return "Parcialmente Nublado";
-    if (code < 50) return "Nevoeiro";
-    if (code < 60) return "Garoa";
-    if (code < 70) return "Chuva";
-    if (code < 80) return "Neve";
-    return "Tempestade";
+    switch (code) {
+      case 0:
+        return "Céu Limpo";
+      case 1:
+        return "Principalmente Limpo";
+      case 2:
+        return "Parcialmente Nublado";
+      case 3:
+        return "Nublado";
+      case 45:
+      case 48:
+        return "Nevoeiro";
+      case 51:
+      case 53:
+      case 55:
+        return "Garoa";
+      case 61:
+      case 63:
+      case 65:
+        return "Chuva";
+      case 71:
+      case 73:
+      case 75:
+        return "Neve";
+      case 80:
+      case 81:
+      case 82:
+        return "Pancadas de Chuva";
+      case 95:
+      case 96:
+      case 99:
+        return "Tempestade";
+      default:
+        return "Desconhecido";
+    }
   }
 }
