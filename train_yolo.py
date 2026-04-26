@@ -44,7 +44,7 @@ def train_model():
 
     results = model.train(
         data=data_path,
-        epochs=100,
+        epochs=300,
         imgsz=416,
         batch=-1,
         patience=20,

@@ -7,9 +7,11 @@ import threading
 import logging
 import os
 import subprocess
+import numpy as np
+
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
-import numpy as np
+
 app = Flask(__name__)
 output_jpeg = None
 lock = threading.Lock()
@@ -17,6 +19,7 @@ brightness_offset = 0
 stream_fps = 30
 jpeg_quality = 90
 is_training = False
+
 @app.route("/start_training", methods=["POST"])
 def start_training():
     global is_training
@@ -95,6 +98,7 @@ def apply_stream_adjustments(frame):
             interpolation=cv2.INTER_LINEAR,
         )
     return adjusted
+
 def generate():
     global output_jpeg, lock, stream_fps
     print(" [STREAM] Novo cliente conectado ao vídeo feed")
@@ -113,6 +117,7 @@ def generate():
             print(" [STREAM] Cliente desconectado")
             break
         time.sleep(1 / max(stream_fps, 1))
+
 @app.route("/video_feed")
 def video_feed():
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
@@ -131,6 +136,7 @@ def set_fps():
 def start_flask():
     print(" [STREAM] Servidor de vídeo rodando em http://0.0.0.0:5000/video_feed")
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True, use_reloader=False)
+
 def on_brightness_change(event):
     global brightness_offset
     try:
@@ -138,6 +144,7 @@ def on_brightness_change(event):
         print(f" [STREAM] Luminosidade ajustada para {brightness_offset}")
     except Exception as exc:
         print(f" [STREAM] Erro ao aplicar luminosidade: {exc}")
+
 def on_fps_change(event):
     global stream_fps, jpeg_quality
     try:
@@ -152,6 +159,7 @@ def on_fps_change(event):
         print(f" [STREAM] FPS alvo ajustado para {stream_fps}")
     except Exception as exc:
         print(f" [STREAM] Erro ao aplicar FPS: {exc}")
+
 def get_best_camera():
     test_indices = [0, 1, 2, 3]
     working_cameras = []
@@ -183,6 +191,7 @@ def get_best_camera():
         return 0
         
     return working_cameras[0]
+
 def run_detection():
     global output_jpeg, lock
     inst = ntcore.NetworkTableInstance.getDefault()
@@ -304,6 +313,7 @@ def run_detection():
             fps_window_started_at = now
     cap.release()
     inst.stopServer()
+    
 if __name__ == "__main__":
     t_flask = threading.Thread(target=start_flask, daemon=True)
     t_flask.start()
